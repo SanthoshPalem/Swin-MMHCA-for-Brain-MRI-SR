@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -46,7 +47,42 @@ def train(args):
     criterion = nn.L1Loss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-    for epoch in range(args.epochs):
+    start_epoch = 0
+    # --- Load from checkpoint if resuming ---
+    if args.resume_from and os.path.exists(args.resume_from):
+        print(f"Loading checkpoint: {args.resume_from}")
+        checkpoint = torch.load(args.resume_from, map_location=device)
+
+        # Check if it's a full resumable checkpoint or just a model state_dict
+        if isinstance(checkpoint, dict) and 'optimizer_state_dict' in checkpoint:
+            print("Resuming training from full checkpoint.")
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            print(f"Resuming from epoch {start_epoch}")
+        else:
+            # It's just a model state_dict, load weights only
+            model.load_state_dict(checkpoint)
+            print("Loaded model weights only. Optimizer state is reset.")
+            # Try to infer epoch from filename, e.g., '..._epoch_50.pth'
+            try:
+                epoch_num_match = re.search(r'_epoch_(\d+)\.pth$', args.resume_from)
+                if epoch_num_match:
+                    start_epoch = int(epoch_num_match.group(1))
+                    print(f"Inferred start epoch from filename: {start_epoch}. Resuming training from this epoch.")
+                else:
+                    print("Could not infer epoch from filename. Starting from epoch 0.")
+                    start_epoch = 0
+            except Exception as e:
+                print(f"Could not infer epoch from filename due to error: {e}. Starting from epoch 0.")
+                start_epoch = 0
+
+    # Create a directory for epoch-wise checkpoints
+    epoch_save_dir = "epoch_checkpoints"
+    if not os.path.exists(epoch_save_dir):
+        os.makedirs(epoch_save_dir)
+
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         running_loss = 0.0
         
@@ -68,12 +104,66 @@ def train(args):
             if (i + 1) % args.log_interval == 0:
                 print(f'Epoch [{epoch+1}/{args.epochs}], Step [{i+1}/{len(dataloader)}], Loss: {running_loss / args.log_interval:.4f}')
                 running_loss = 0.0
-    
+        
+        # --- Checkpoint and Evaluate every 10 epochs ---
+        if (epoch + 1) % 10 == 0:
+            # 1. Save the model checkpoint
+            model_path = os.path.join(epoch_save_dir, f'swin_mmhca_x{args.scale_factor}_epoch_{epoch+1}.pth')
+            torch.save(model.state_dict(), model_path)
+            print(f"\nSaved checkpoint to {model_path}")
+
+            # 2. Perform Quantitative Evaluation
+            eval_args = argparse.Namespace(**vars(args))
+            eval_args.model_type = 'SwinMMHCA'
+            eval_args.checkpoint_path = model_path
+            
+            print(f"--- Evaluating model at epoch {epoch + 1} (Quantitative) ---")
+            evaluate(eval_args)
+            print(f"--- Finished quantitative evaluation for epoch {epoch + 1} ---\n")
+
+            # 3. Perform Qualitative Evaluation (Visualization)
+            # Create a separate save directory for visualizations per checkpoint
+            visual_save_dir = os.path.join("epoch_visuals", f'epoch_{epoch+1}_visuals')
+            if not os.path.exists(visual_save_dir):
+                os.makedirs(visual_save_dir)
+
+            visual_args = argparse.Namespace(**vars(args))
+            visual_args.n_inputs = args.n_inputs 
+            visual_args.scale_factor = args.scale_factor
+            visual_args.checkpoint_path = model_path
+            visual_args.edsr_checkpoint_path = args.edsr_checkpoint_path 
+            visual_args.save_dir = visual_save_dir
+            visual_args.use_test_samples = False # Sample from validation dataloader for varied results
+            visual_args.num_samples = 3 # Visualize 3 samples
+
+            print(f"--- Visualizing model at epoch {epoch + 1} (Qualitative) ---")
+            # To avoid issues with model being on GPU and then trying to evaluate
+            # it's better to keep the model on the device and let evaluate handle it.
+            # The visualize function creates its own model instance and loads the saved model.
+            visualize(visual_args)
+            print(f"--- Finished qualitative visualization for epoch {epoch + 1} ---\n")
+
+    # --- Save final resumable checkpoint ---
+    if args.save_checkpoint:
+        final_epoch = args.epochs - 1
+        save_dir = os.path.dirname(args.save_checkpoint)
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir)
+
+        torch.save({
+            'epoch': final_epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+        }, args.save_checkpoint)
+        print(f"Saved resumable checkpoint to {args.save_checkpoint}")
+
+
+    # Save the final model
     if not os.path.exists(args.save_dir):
         os.makedirs(args.save_dir)
-    model_path = os.path.join(args.save_dir, f'swin_mmhca_x{args.scale_factor}.pth')
-    torch.save(model.state_dict(), model_path)
-    print(f"Model saved to {model_path}")
+    final_model_path = os.path.join(args.save_dir, f'swin_mmhca_x{args.scale_factor}_final_{args.epochs}_epochs.pth')
+    torch.save(model.state_dict(), final_model_path)
+    print(f"Final model saved to {final_model_path}")
 
     end_time = time.time()
     elapsed_time = end_time - start_time
@@ -327,6 +417,10 @@ def main():
     parser.add_argument('--num_samples', type=int, default=3, help='number of samples to visualize')
     parser.add_argument('--use_test_samples', action='store_true', help='Use the test samples from MHCA-main')
     parser.add_argument('--test_sample_path', type=str, default='../MHCA-main/edsr/test_samples', help='Path to the test samples directory')
+
+    # Resumable training specifications
+    parser.add_argument('--save_checkpoint', type=str, default=None, help='Path to save the training state for resuming.')
+    parser.add_argument('--resume_from', type=str, default=None, help='Path to a checkpoint to resume training from.')
 
 
     args = parser.parse_args()
