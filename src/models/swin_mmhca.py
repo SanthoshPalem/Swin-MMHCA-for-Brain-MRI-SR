@@ -28,17 +28,19 @@ class PositionalEncoding2D(nn.Module):
     def forward(self, x):
         return x + self.pe
 
-class UpsampleBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        super(UpsampleBlock, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, 3, 1, 1)
-        self.act = nn.ReLU(True)
-    
+class UpsampleConvLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, scale_factor=2):
+        super(UpsampleConvLayer, self).__init__()
+        self.upsample = nn.Sequential(
+            default_conv(in_channels, out_channels * (scale_factor ** 2), 3),
+            nn.PixelShuffle(scale_factor),
+            nn.ReLU(True),
+            default_conv(out_channels, out_channels, 3),
+            nn.ReLU(True)
+        )
+
     def forward(self, x):
-        x = F.interpolate(x, scale_factor=2, mode='bicubic', align_corners=False)
-        x = self.conv(x)
-        x = self.act(x)
-        return x
+        return self.upsample(x)
 
 class SwinMMHCA(nn.Module):
     def __init__(self, n_inputs=1, n_feats=64, scale=4, height=64, width=64):
@@ -65,38 +67,72 @@ class SwinMMHCA(nn.Module):
             window_size=4
         )
         
-        self.mmhca = MHCA(n_feats=192, ratio=4)
+        self.mmhca = MHCA(n_feats=384, ratio=4)
 
-        decoder_layers = []
-        n_feats_dec = 192
-        # Dynamically create decoder based on scale factor
-        num_upsample_blocks = int(math.log2(8 * scale))
-        for i in range(num_upsample_blocks):
-            decoder_layers.append(UpsampleBlock(n_feats_dec, n_feats_dec))
-        decoder_layers.append(default_conv(n_feats_dec, 1, 3))
-        self.cnn_decoder = nn.Sequential(*decoder_layers)
+        self.skip_conv = default_conv(n_feats * n_inputs, 192, 1)
+
+        # Decoder for SwinMMHCA with PixelShuffle and Skip Connections
+        # Assuming H_swin=W_swin=4 (output from MHCA)
+        # Upsample 4x4 -> 8x8 -> 16x16 -> 32x32 -> 64x64 (4 UpsampleConvLayer)
+        # Here we concatenate with skip connection from cnn_encoders (64x64)
+        # Upsample 64x64 -> 128x128 -> 256x256 (2 more UpsampleConvLayer)
+
+        self.upsample_block1 = UpsampleConvLayer(384, 192, scale_factor=2) # 4x4 -> 8x8
+        self.upsample_block2 = UpsampleConvLayer(192, 192, scale_factor=2) # 8x8 -> 16x16
+        self.upsample_block3 = UpsampleConvLayer(192, 192, scale_factor=2) # 16x16 -> 32x32
+        self.upsample_block4 = UpsampleConvLayer(192, 192, scale_factor=2) # 32x32 -> 64x64
+
+        # After upsample_block4, feature map is (B, 192, 64, 64)
+        # Skip connection from cnn_encoders has channels n_feats * n_inputs.
+        # We process this and concatenate here.
+
+        self.conv_concat_skip = default_conv(192 + 192, 192, 3) # 192 (from decoder) + 192 (from skip) -> 192
+        
+        self.upsample_block5 = UpsampleConvLayer(192, 192, scale_factor=2) # 64x64 -> 128x128
+        self.upsample_block6 = UpsampleConvLayer(192, 192, scale_factor=2) # 128x128 -> 256x256
+
+        self.final_conv = default_conv(192, 1, 3)
+
 
     def forward(self, x):
         if isinstance(x, list):
             # Multi-input case
-            encoded_features = [encoder(xi) for xi, encoder in zip(x, self.cnn_encoders)]
-            x = torch.cat(encoded_features, dim=1)
+            encoded_features_list = [encoder(xi) for xi, encoder in zip(x, self.cnn_encoders)]
+            # Capture skip connection before positional encoding and transformer
+            x_encoder_skip = torch.cat(encoded_features_list, dim=1) # (B, n_feats*n_inputs, H, W)
+            x = x_encoder_skip
         else:
             # Single-input case
-            x = self.cnn_encoders[0](x)
+            x_encoder_skip = self.cnn_encoders[0](x) # (B, n_feats*n_inputs, H, W)
+            x = x_encoder_skip
             
         x = self.pos_encoder(x)
         
         features = self.transformer_encoder.forward_features(x)
         
-        x_p0 = features[0] 
+        x_p0 = features[1] 
         
         B, L, C = x_p0.shape
-        H = W = int(L**0.5)
-        x = x_p0.view(B, H, W, C).permute(0, 3, 1, 2)
+        H_swin = W_swin = int(L**0.5) # This should resolve to 4x4
+        x = x_p0.view(B, H_swin, W_swin, C).permute(0, 3, 1, 2) # (B, 384, H_swin, W_swin)
         
-        x = self.mmhca(x)
-        x = self.cnn_decoder(x)
+        x = self.mmhca(x) # Input to first UpsampleConvLayer is (B, 384, 4, 4)
+
+        # Decoder path with PixelShuffle and Skip Connection
+        x = self.upsample_block1(x) # (B, 192, 8, 8)
+        x = self.upsample_block2(x) # (B, 192, 16, 16)
+        x = self.upsample_block3(x) # (B, 192, 32, 32)
+        x = self.upsample_block4(x) # (B, 192, 64, 64) - This is where the skip connection should be added
+
+        # Prepare and apply skip connection
+        skip_features = self.skip_conv(x_encoder_skip) # (B, 192, 64, 64)
+        x = torch.cat((x, skip_features), dim=1) # Concatenate features along channel dimension
+        x = self.conv_concat_skip(x) # (B, 192, 64, 64)
+
+        x = self.upsample_block5(x) # (B, 192, 128, 128)
+        x = self.upsample_block6(x) # (B, 192, 256, 256)
+        
+        x = self.final_conv(x)
         return x
 
 if __name__ == '__main__':

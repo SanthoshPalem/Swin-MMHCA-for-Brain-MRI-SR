@@ -115,7 +115,10 @@ def train(args):
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
 
     # --- Setup optimizer, loss, and mixed-precision scaler ---
-    criterion = nn.L1Loss()
+    criterion_l1 = nn.L1Loss()
+    lpips_loss_fn = lpips.LPIPS(net='alex', spatial=False).to(device)
+    lpips_loss_fn.eval() # LPIPS model should be in eval mode
+    
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     scaler = GradScaler(enabled=not args.cpu and torch.cuda.is_available())
 
@@ -190,7 +193,16 @@ def train(args):
             # Use mixed precision
             with autocast(enabled=not args.cpu):
                 outputs = model(lr_images if args.n_inputs > 1 else lr_images[0])
-                loss = criterion(outputs, hr_image)
+                
+                # Calculate L1 Loss
+                l1_loss = criterion_l1(outputs, hr_image)
+                
+                # Calculate LPIPS Loss (inputs must be in [-1, 1] range)
+                # Assuming outputs and hr_image are in [0, 1]
+                perceptual_loss = lpips_loss_fn(outputs * 2 - 1, hr_image * 2 - 1).mean()
+                
+                # Combine losses
+                loss = args.l1_weight * l1_loss + args.lpips_weight * perceptual_loss
             
             scaler.scale(loss).backward()
             scaler.step(optimizer)
@@ -321,6 +333,8 @@ def main():
     parser.add_argument('--epochs', type=int, default=50, help='number of epochs to train for')
     parser.add_argument('--batch_size', type=int, default=4, help='batch size for training')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
+    parser.add_argument('--l1_weight', type=float, default=1.0, help='weight for L1 loss')
+    parser.add_argument('--lpips_weight', type=float, default=0.1, help='weight for LPIPS loss')
     parser.add_argument('--num_workers', type=int, default=4, help='number of workers for data loading (set to 0 for debugging, >0 for performance)')
     parser.add_argument('--log_interval', type=int, default=10, help='interval for printing training loss')
     parser.add_argument('--save_dir', type=str, default='results', help='directory to save the trained model')

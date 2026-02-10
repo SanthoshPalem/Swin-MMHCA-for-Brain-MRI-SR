@@ -72,42 +72,58 @@ class MultiModalSuperResDataset(data.Dataset):
         # The target modality for super-resolution is T2
         target_modality = 'T2'
         
+        # First, load all original slices for cropping
+        original_slices = {}
         for mod in self.modalities:
             file_path = sample_files[mod]
-            
-            # Load the NIfTI image
             nii_img = nib.load(file_path)
             img_data = nii_img.get_fdata()
-            
-            # Take the central slice of the 3D volume
             central_slice_idx = img_data.shape[2] // 2
             slice_data = img_data[:, :, central_slice_idx]
-            
-            # Normalize and convert to PIL Image
             slice_data = (slice_data - slice_data.min()) / (slice_data.max() - slice_data.min())
             slice_data = (slice_data * 255).astype(np.uint8)
             img_pil = Image.fromarray(slice_data).convert('L') # Grayscale
-            
-            # Generate LR image & HR image and resize
-            width, height = img_pil.size
-            lr_img_pil = img_pil.resize((width // self.scale_factor, height // self.scale_factor), Image.BICUBIC)
-            
-            # Resize for the model
-            lr_img_pil = lr_img_pil.resize((64, 64), Image.BICUBIC)
-            
-            if self.transform:
-                lr_img = self.transform(lr_img_pil)
+            original_slices[mod] = img_pil
 
-            lr_images.append(lr_img)
+        # Determine HR patch size and random crop coordinates
+        hr_patch_size = 64 * self.scale_factor # e.g., 256 for scale_factor=4
+        
+        original_width, original_height = original_slices[target_modality].size 
+        
+        if original_width < hr_patch_size or original_height < hr_patch_size:
+            # Fallback: If original image is smaller than target HR patch,
+            # resize the whole original image to hr_patch_size and then downsample.
+            hr_cropped_pil = original_slices[target_modality].resize((hr_patch_size, hr_patch_size), Image.BICUBIC)
+            lr_cropped_pil_target = hr_cropped_pil.resize((64, 64), Image.BICUBIC)
 
-            if mod == target_modality:
-                # Resize HR image for the model output, dynamically based on scale
-                hr_size = 64 * self.scale_factor
-                hr_img_pil = img_pil.resize((hr_size, hr_size), Image.BICUBIC)
-                if self.transform:
-                    hr_image = self.transform(hr_img_pil)
+            for mod in self.modalities:
+                if mod == target_modality:
+                    lr_images.append(self.transform(lr_cropped_pil_target))
+                    hr_image = self.transform(hr_cropped_pil)
                 else:
-                    hr_image = hr_img_pil
+                    resized_lr_mod = original_slices[mod].resize((64, 64), Image.BICUBIC)
+                    lr_images.append(self.transform(resized_lr_mod))
+        else:
+            # Randomly crop for images larger than or equal to hr_patch_size
+            left = np.random.randint(0, original_width - hr_patch_size + 1)
+            top = np.random.randint(0, original_height - hr_patch_size + 1)
+            # right = left + hr_patch_size # Not explicitly needed for crop()
+            # bottom = top + hr_patch_size # Not explicitly needed for crop()
+
+            # Process each modality using the same crop coordinates
+            for mod in self.modalities:
+                img_pil = original_slices[mod]
+                
+                # Crop HR patch
+                hr_cropped_pil = img_pil.crop((left, top, left + hr_patch_size, top + hr_patch_size))
+                
+                # Generate LR patch by downsampling the HR patch
+                lr_cropped_pil = hr_cropped_pil.resize((hr_patch_size // self.scale_factor, hr_patch_size // self.scale_factor), Image.BICUBIC)
+                
+                if self.transform:
+                    lr_images.append(self.transform(lr_cropped_pil))
+                    if mod == target_modality:
+                        hr_image = self.transform(hr_cropped_pil)
         
         return lr_images, hr_image
 
