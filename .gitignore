@@ -1,12 +1,30 @@
-﻿# Ignore large data and model files
+# Data and Models
 datasets/
 pretrained_models/
-
-# PyTorch model files
+epoch_checkpoints/
 *.pt
 *.pth
+*.nii
+*.nii.gz
 
-# (Optional) medical image data formats
-# *.nii
-# *.nii.gz
-# *.gz
+# Outputs and Visuals
+epoch_visuals/
+results/
+*.png
+*.jpg
+*.csv
+!ARCHITECTURE_DIAGRAM.png
+!DualPathArch.png
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# OS
+.DS_Store
+Thumbs.db

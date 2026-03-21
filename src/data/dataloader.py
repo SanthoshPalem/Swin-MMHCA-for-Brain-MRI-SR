@@ -18,16 +18,17 @@ class MultiModalSuperResDataset(data.Dataset):
         if shuffle:
             np.random.shuffle(all_samples)
             
-        # Per the paper: 500 train, 6 validation, 70 test
-        train_end = 500
-        val_end = 500 + 6
+        # Percentage-based split: 80% train, 10% validation, 10% test
+        num_samples = len(all_samples)
+        train_end = int(num_samples * 0.8)
+        val_end = int(num_samples * 0.9)
         
         if split == 'train':
             self.samples = all_samples[:train_end]
         elif split == 'validation':
             self.samples = all_samples[train_end:val_end]
         elif split == 'test':
-            self.samples = all_samples[val_end:val_end + 70]
+            self.samples = all_samples[val_end:]
         else:
             raise ValueError(f"Invalid split '{split}'. Choose from 'train', 'validation', 'test'.")
 

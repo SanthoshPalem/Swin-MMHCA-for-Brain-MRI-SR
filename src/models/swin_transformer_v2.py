@@ -562,7 +562,7 @@ class SwinTransformer(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
-        features = []
+        features = [x] # Include initial patch embedding (e.g., 16x16)
         for layer in self.layers:
             x = layer(x)
             features.append(x)

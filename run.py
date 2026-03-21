@@ -1,367 +1,165 @@
 import argparse
 import os
-import re
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor
 import time
-from torchmetrics import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 import lpips
+import torch.nn.functional as F
+from torch.amp import GradScaler, autocast
 import matplotlib.pyplot as plt
 import numpy as np
-import pickle
-import torch.nn.functional as F
-from torch.cuda.amp import GradScaler, autocast
 
 from src.models.swin_mmhca import SwinMMHCA
 from src.data.dataloader import MultiModalSuperResDataset
-from src.models.options import get_args
-from src.models.edsr_nav import EDSR_Nav
+
+# --- 1. PatchGAN Discriminator ---
+class Discriminator(nn.Module):
+    def __init__(self, in_channels=1):
+        super(Discriminator, self).__init__()
+        def block(in_f, out_f, stride=2):
+            return nn.Sequential(
+                nn.Conv2d(in_f, out_f, 4, stride, 1, bias=False),
+                nn.BatchNorm2d(out_f),
+                nn.LeakyReLU(0.2, inplace=True)
+            )
+        self.model = nn.Sequential(
+            block(in_channels, 64),
+            block(64, 128),
+            block(128, 256),
+            block(256, 512, stride=1),
+            nn.Conv2d(512, 1, 4, 1, 1)
+        )
+    def forward(self, x): return self.model(x)
+
+# --- 2. Optimized Edge Loss ---
+class EdgeLoss(nn.Module):
+    def __init__(self):
+        super(EdgeLoss, self).__init__()
+        self.register_buffer('fh', torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]).float().view(1, 1, 3, 3))
+        self.register_buffer('fv', torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]]).float().view(1, 1, 3, 3))
+
+    def forward(self, pred, target):
+        grad_pred = torch.sqrt(F.conv2d(pred, self.fh, padding=1)**2 + F.conv2d(pred, self.fv, padding=1)**2 + 1e-6)
+        grad_target = torch.sqrt(F.conv2d(target, self.fh, padding=1)**2 + F.conv2d(target, self.fv, padding=1)**2 + 1e-6)
+        return F.l1_loss(grad_pred, grad_target)
 
 def save_visual_comparison(epoch, model, dataloader, device, save_dir, args):
-    """Saves visual comparisons of model output for a few validation samples."""
-    print(f"--- Generating visualizations for epoch {epoch} ---")
+    """Saves visual comparisons with robust normalization."""
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
     model.eval()
     with torch.no_grad():
         for i, (lr_images, hr_image) in enumerate(dataloader):
-            if i >= args.num_samples:
-                break
+            if i >= 3: break
+            lr_imgs = [img.to(device) for img in lr_images]
+            hr_img = hr_image.to(device)
 
-            if args.n_inputs == 1:
-                lr_images = lr_images[0].unsqueeze(0)
+            outputs_sr, _, _ = model(lr_imgs)
+            
+            # Diagnostic prints
+            print(f"Sample {i+1} SR range: min={outputs_sr.min().item():.4f}, max={outputs_sr.max().item():.4f}")
+            print(f"Sample {i+1} HR range: min={hr_img.min().item():.4f}, max={hr_img.max().item():.4f}")
 
-            lr_images = [img.to(device) for img in lr_images]
-            hr_image = hr_image.to(device)
+            # Use T2 for LR display (index 1 if n_inputs > 1 else 0)
+            idx = 1 if len(lr_imgs) > 1 else 0
+            lr_display = lr_imgs[idx].squeeze().cpu().numpy()
+            hr_display = hr_img.squeeze().cpu().numpy()
+            output_display = outputs_sr.squeeze().cpu().numpy()
+            
+            # Robust normalization for visualization
+            def norm(x):
+                x = np.nan_to_num(x)
+                if x.max() > x.min():
+                    return (x - x.min()) / (x.max() - x.min())
+                return x
 
-            # Generate model output
-            outputs = model(lr_images if args.n_inputs > 1 else lr_images[0])
-
-            # Prepare images for display
-            # Use T2 modality for LR input display
-            lr_display = lr_images[1].squeeze().cpu().numpy()
-            hr_display = hr_image.squeeze().cpu().numpy()
-            output_display = outputs.squeeze().cpu().numpy()
-
-            # Plot and save the comparison
             fig, axes = plt.subplots(1, 3, figsize=(15, 5))
             fig.suptitle(f'Epoch {epoch} - Sample {i+1}', fontsize=16)
-
-            axes[0].imshow(lr_display, cmap='gray')
-            axes[0].set_title('Low-Resolution Input (T2)')
-            axes[0].axis('off')
-
-            axes[1].imshow(output_display, cmap='gray')
-            axes[1].set_title('Super-Resolved Output')
-            axes[1].axis('off')
-
-            axes[2].imshow(hr_display, cmap='gray')
-            axes[2].set_title('High-Resolution Ground Truth')
-            axes[2].axis('off')
-
-            plt.tight_layout()
-            save_path = os.path.join(save_dir, f'comparison_sample_{i+1}.png')
-            plt.savefig(save_path)
-            plt.close(fig)
+            axes[0].imshow(norm(lr_display), cmap='gray'); axes[0].set_title('LR Input (T2)')
+            axes[1].imshow(norm(output_display), cmap='gray'); axes[1].set_title('SR Output')
+            axes[2].imshow(norm(hr_display), cmap='gray'); axes[2].set_title('HR Target')
+            for ax in axes: ax.axis('off')
+            plt.savefig(os.path.join(save_dir, f'sample_{i+1}.png')); plt.close(fig)
 
     print(f"--- Visualizations saved to {save_dir} ---")
     model.train()
 
-
 def train(args):
-    start_time = time.time()
-
-    # --- Setup device and model parallelization ---
-    device = torch.device('cuda' if not args.cpu and torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-
-    model = SwinMMHCA(n_inputs=args.n_inputs, scale=args.scale_factor)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = SwinMMHCA(n_inputs=args.n_inputs, scale=args.scale_factor).to(device)
+    netD = Discriminator().to(device)
     
-    # Enable DataParallel for multi-GPU usage
-    if torch.cuda.device_count() > 1 and args.n_GPUs > 1:
-        print(f"Using {torch.cuda.device_count()} GPUs!")
-        model = nn.DataParallel(model)
+    optimizerG = optim.Adam(model.parameters(), lr=args.lr, betas=(0.5, 0.999))
+    optimizerD = optim.Adam(netD.parameters(), lr=args.lr, betas=(0.5, 0.999))
+    scalerG = GradScaler('cuda'); scalerD = GradScaler('cuda')
     
-    model.to(device)
-
-    # --- Setup datasets and dataloaders ---
-    if args.n_inputs == 1:
-        modalities = ['T2']
-    else:
-        modalities = ['T1', 'T2', 'PD']
-
-    train_dataset = MultiModalSuperResDataset(
-        dataset_root=args.dataset_root,
-        modalities=modalities,
-        scale_factor=args.scale_factor,
-        transform=ToTensor(),
-        split='train'
-    )
-    dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True)
-
-    # Create a separate dataloader for validation/visualization
-    val_dataset = MultiModalSuperResDataset(
-        dataset_root=args.dataset_root,
-        modalities=modalities,
-        scale_factor=args.scale_factor,
-        transform=ToTensor(),
-        split='test',
-        shuffle=False # No need to shuffle for visualization
-    )
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
-
-    # --- Setup optimizer, loss, and mixed-precision scaler ---
+    criterion_gan = nn.MSELoss()
     criterion_l1 = nn.L1Loss()
-    lpips_loss_fn = lpips.LPIPS(net='alex', spatial=False).to(device)
-    lpips_loss_fn.eval() # LPIPS model should be in eval mode
-    
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    scaler = GradScaler(enabled=not args.cpu and torch.cuda.is_available())
-
-    start_epoch = 0
-    # --- Load from checkpoint if resuming ---
-    if args.resume_from and os.path.exists(args.resume_from):
-        print(f"Loading checkpoint: {args.resume_from}")
-        checkpoint = torch.load(args.resume_from, map_location=device)
-        
-        state_dict_to_load = None
-        # Check if it's a full checkpoint or just a state_dict
-        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-            print("Resuming training from full checkpoint.")
-            state_dict_to_load = checkpoint['model_state_dict']
-            if 'optimizer_state_dict' in checkpoint:
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            if 'epoch' in checkpoint:
-                start_epoch = checkpoint['epoch'] + 1
-            print(f"Resuming from epoch {start_epoch}")
-        else:
-            # This is a raw state_dict from an epoch-wise save
-            print("Loaded model weights only. Optimizer will be reset.")
-            state_dict_to_load = checkpoint
-            # Try to infer epoch from filename
-            match = re.search(r'_epoch_(\d+)\.pth$', args.resume_from)
-            if match:
-                start_epoch = int(match.group(1))
-                print(f"Inferred start epoch from filename: {start_epoch}. Resuming training from next epoch.")
-            else:
-                 print("Could not infer epoch from filename. Starting from epoch 0.")
-
-        # Now, load the state_dict, handling DataParallel prefix
-        if state_dict_to_load:
-            is_model_dataparallel = isinstance(model, nn.DataParallel)
-            is_checkpoint_dataparallel = any(k.startswith('module.') for k in state_dict_to_load.keys())
-
-            if is_model_dataparallel and not is_checkpoint_dataparallel:
-                # Current model is DP, checkpoint is not. Add 'module.' prefix.
-                print("Adding 'module.' prefix to checkpoint keys for DataParallel model.")
-                new_state_dict = {'module.' + k: v for k, v in state_dict_to_load.items()}
-                model.load_state_dict(new_state_dict)
-            elif not is_model_dataparallel and is_checkpoint_dataparallel:
-                # Current model is not DP, checkpoint is. Remove 'module.' prefix.
-                print("Removing 'module.' prefix from checkpoint keys for single-GPU model.")
-                new_state_dict = {k.replace('module.', ''): v for k, v in state_dict_to_load.items()}
-                model.load_state_dict(new_state_dict)
-            else:
-                # Both are DP or both are not. Load as is.
-                model.load_state_dict(state_dict_to_load)
-
-    # --- Create directories for checkpoints and visuals ---
-    epoch_save_dir = "epoch_checkpoints"
-    os.makedirs(epoch_save_dir, exist_ok=True)
-    visual_save_root = "epoch_visuals"
-    os.makedirs(visual_save_root, exist_ok=True)
-
-    # --- Training Loop ---
-    for epoch in range(start_epoch, args.epochs):
-        epoch_start_time = time.time()
-        model.train()
-        running_loss = 0.0
-        
-        for i, (lr_images, hr_image) in enumerate(dataloader):
-            if args.n_inputs == 1:
-                lr_images = lr_images[0].unsqueeze(0)
-            
-            lr_images = [img.to(device, non_blocking=True) for img in lr_images]
-            hr_image = hr_image.to(device, non_blocking=True)
-
-            optimizer.zero_grad()
-            
-            # Use mixed precision
-            with autocast(enabled=not args.cpu):
-                outputs = model(lr_images if args.n_inputs > 1 else lr_images[0])
-                
-                # Calculate L1 Loss
-                l1_loss = criterion_l1(outputs, hr_image)
-                
-                # Calculate LPIPS Loss (inputs must be in [-1, 1] range)
-                # Assuming outputs and hr_image are in [0, 1]
-                perceptual_loss = lpips_loss_fn(outputs * 2 - 1, hr_image * 2 - 1).mean()
-                
-                # Combine losses
-                loss = args.l1_weight * l1_loss + args.lpips_weight * perceptual_loss
-            
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-
-            running_loss += loss.item()
-
-            if (i + 1) % args.log_interval == 0:
-                print(f'Epoch [{epoch+1}/{args.epochs}], Step [{i+1}/{len(dataloader)}], Loss: {running_loss / args.log_interval:.4f}')
-                running_loss = 0.0
-
-        epoch_duration = time.time() - epoch_start_time
-        print(f"Epoch {epoch+1} completed in {epoch_duration:.2f} seconds.")
-
-        # --- Checkpoint and Visualize every 10 epochs ---
-        if (epoch + 1) % 10 == 0:
-            # 1. Save the model checkpoint
-            model_to_save = model.module if isinstance(model, nn.DataParallel) else model
-            model_path = os.path.join(epoch_save_dir, f'swin_mmhca_x{args.scale_factor}_epoch_{epoch+1}.pth')
-            torch.save(model_to_save.state_dict(), model_path)
-            print(f"\nSaved checkpoint to {model_path}")
-
-            # 2. Perform Qualitative Visualization without interrupting
-            visual_save_dir = os.path.join(visual_save_root, f'epoch_{epoch+1}_visuals')
-            save_visual_comparison(epoch + 1, model, val_dataloader, device, visual_save_dir, args)
-
-    # --- Save final resumable checkpoint ---
-    if args.save_checkpoint:
-        os.makedirs(os.path.dirname(args.save_checkpoint), exist_ok=True)
-        model_to_save = model.module if isinstance(model, nn.DataParallel) else model
-        torch.save({
-            'epoch': args.epochs - 1,
-            'model_state_dict': model_to_save.state_dict(),
-            'optimizer_state_dict': optimizer.state_dict(),
-        }, args.save_checkpoint)
-        print(f"Saved resumable checkpoint to {args.save_checkpoint}")
-
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"Total training time for {args.epochs - start_epoch} epochs: {elapsed_time:.2f} seconds")
-
-
-def evaluate(args):
-    device = torch.device('cuda' if not args.cpu and torch.cuda.is_available() else 'cpu')
-    print(f"Using device: {device}")
-
-    if args.model_type == 'EDSR_Nav':
-        modalities = ['T2', 'PD']
-        n_inputs = 2
-    else:
-        n_inputs = 3 if args.n_inputs > 1 else 1
-        modalities = ['T1', 'T2', 'PD'] if n_inputs > 1 else ['T2']
-        
-    val_dataset = MultiModalSuperResDataset(
-        dataset_root=args.dataset_root,
-        modalities=modalities,
-        scale_factor=args.scale_factor,
-        transform=ToTensor(),
-        split='test',
-        shuffle=False
-    )
-    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=args.num_workers)
-
-    if args.model_type == 'SwinMMHCA':
-        model = SwinMMHCA(n_inputs=n_inputs, scale=args.scale_factor)
-        model.load_state_dict(torch.load(args.checkpoint_path, map_location=device))
-    elif args.model_type == 'EDSR_Nav':
-        edsr_args = get_args()
-        edsr_args.scale = [args.scale_factor]
-        model = EDSR_Nav(edsr_args)
-        model.load_state_dict(torch.load(args.edsr_checkpoint_path, map_location=device))
-    else:
-        raise ValueError(f"Unknown model type: {args.model_type}")
-
-    model.to(device)
-    model.eval()
-
-    psnr = PeakSignalNoiseRatio().to(device)
-    ssim = StructuralSimilarityIndexMeasure().to(device)
+    criterion_edge = EdgeLoss().to(device)
     lpips_fn = lpips.LPIPS(net='alex').to(device)
 
-    total_psnr, total_ssim, total_lpips = 0.0, 0.0, 0.0
+    train_dataset = MultiModalSuperResDataset(args.dataset_root, split='train', transform=ToTensor(), scale_factor=args.scale_factor)
+    dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, persistent_workers=True)
+    
+    val_dataset = MultiModalSuperResDataset(args.dataset_root, split='test', transform=ToTensor(), scale_factor=args.scale_factor, shuffle=False)
+    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
 
-    with torch.no_grad():
-        for lr_images, hr_image in val_dataloader:
-            if n_inputs == 1:
-                lr_images = lr_images[0].unsqueeze(0)
+    for epoch in range(args.epochs):
+        model.train()
+        # Adversarial Warming: Introduce GAN loss gradually after epoch 10
+        adv_weight = 0.1 if epoch >= 10 else 0.0
+        
+        for i, (lr_imgs, hr_img) in enumerate(dataloader):
+            lr_imgs = [img.to(device) for img in lr_imgs]; hr_img = hr_img.to(device)
             
-            lr_images = [img.to(device) for img in lr_images]
-            hr_image = hr_image.to(device)
+            # --- Train Discriminator ---
+            optimizerD.zero_grad()
+            with autocast('cuda'):
+                real_out = netD(hr_img)
+                loss_real = criterion_gan(real_out, torch.ones_like(real_out))
+                fake_hr, _, _ = model(lr_imgs)
+                fake_out = netD(fake_hr.detach())
+                loss_fake = criterion_gan(fake_out, torch.zeros_like(fake_out))
+                loss_D = (loss_real + loss_fake) * 0.5
+            scalerD.scale(loss_D).backward(); scalerD.step(optimizerD); scalerD.update()
 
-            outputs = model(lr_images if n_inputs > 1 else lr_images[0])
+            # --- Train Generator ---
+            optimizerG.zero_grad()
+            with autocast('cuda'):
+                fake_hr, seg_mask, _ = model(lr_imgs)
+                loss_adv = criterion_gan(netD(fake_hr), torch.ones_like(real_out))
+                loss_l1 = criterion_l1(fake_hr, hr_img)
+                loss_perc = lpips_fn(fake_hr * 2 - 1, hr_img * 2 - 1).mean()
+                loss_edge = criterion_edge(fake_hr, hr_img)
+                loss_seg = F.binary_cross_entropy_with_logits(seg_mask, (hr_img > 0.5).float())
+                
+                loss_G = 10.0 * loss_l1 + 1.0 * loss_perc + 2.0 * loss_edge + adv_weight * loss_adv + 0.1 * loss_seg
+            
+            scalerG.scale(loss_G).backward(); scalerG.step(optimizerG); scalerG.update()
+            if (i+1) % 10 == 0:
+                print(f"Epoch [{epoch+1}/{args.epochs}] Step [{i+1}/{len(dataloader)}] LossG: {loss_G.item():.4f} LossD: {loss_D.item():.4f} AdvW: {adv_weight}")
 
-            total_psnr += psnr(outputs, hr_image)
-            total_ssim += ssim(outputs, hr_image)
-            # LPIPS expects input range [-1, 1]
-            total_lpips += lpips_fn(outputs * 2 - 1, hr_image * 2 - 1).mean()
+        if (epoch + 1) % 10 == 0:
+            torch.save(model.state_dict(), f"epoch_checkpoints/gan_epoch_{epoch+1}.pth")
+            save_visual_comparison(epoch + 1, model, val_dataloader, device, f"epoch_visuals/epoch_{epoch+1}_visuals", args)
 
-    avg_psnr = total_psnr / len(val_dataloader)
-    avg_ssim = total_ssim / len(val_dataloader)
-    avg_lpips = total_lpips / len(val_dataloader)
-
-    print(f'Results for {args.model_type}:')
-    print(f'  Average PSNR: {avg_psnr:.4f}')
-    print(f'  Average SSIM: {avg_ssim:.4f}')
-    print(f'  Average LPIPS: {avg_lpips:.4f}')
-
-def main():
-    parser = argparse.ArgumentParser(description='SwinMMHCA for Super-Resolution')
-
-    # Mode
-    parser.add_argument('--mode', type=str, default='train', choices=['train', 'evaluate'], help='Operating mode')
-
-    # Hardware specifications
-    parser.add_argument('--cpu', action='store_true', help='use cpu only')
-    parser.add_argument('--n_GPUs', type=int, default=1, help='number of GPUs to use')
-
-    # Data specifications
-    parser.add_argument('--dataset_root', type=str, default='datasets', help='root directory of the dataset')
-    parser.add_argument('--scale_factor', type=int, default=4, help='super-resolution scale factor')
-    parser.add_argument('--n_inputs', type=int, default=3, help='number of input modalities (1 for single-input, >1 for multi-input)')
-
-    # Model specifications
-    parser.add_argument('--model_type', type=str, default='SwinMMHCA', choices=['SwinMMHCA', 'EDSR_Nav'], help='type of model to use')
-    parser.add_argument('--checkpoint_path', type=str, default='pretrained_models/swin_mmhca.pth', help='path to the model checkpoint')
-
-    # Training specifications
-    parser.add_argument('--epochs', type=int, default=50, help='number of epochs to train for')
-    parser.add_argument('--batch_size', type=int, default=4, help='batch size for training')
-    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
-    parser.add_argument('--l1_weight', type=float, default=1.0, help='weight for L1 loss')
-    parser.add_argument('--lpips_weight', type=float, default=0.1, help='weight for LPIPS loss')
-    parser.add_argument('--num_workers', type=int, default=4, help='number of workers for data loading (set to 0 for debugging, >0 for performance)')
-    parser.add_argument('--log_interval', type=int, default=10, help='interval for printing training loss')
-    parser.add_argument('--save_dir', type=str, default='results', help='directory to save the trained model')
-    parser.add_argument('--num_samples', type=int, default=3, help='number of samples to visualize')
-
-    # Resumable training specifications
-    parser.add_argument('--save_checkpoint', type=str, default=None, help='Path to save the training state for resuming.')
-    parser.add_argument('--resume_from', type=str, default=None, help='Path to a checkpoint to resume training from.')
-    
-    # Evaluation specifications (only for evaluate mode)
-    parser.add_argument('--edsr_checkpoint_path', type=str, default='../MHCA-main/edsr/pretrained_models/model_multi_input_IXI_x4.pt', help='Path to the EDSR_Nav model checkpoint for comparison')
-
-    args = parser.parse_args()
-
-    # Automatically adjust n_GPUs if more are available
-    if not args.cpu and torch.cuda.is_available():
-        gpu_count = torch.cuda.device_count()
-        if gpu_count > 1:
-            print(f"Found {gpu_count} GPUs available.")
-            if args.n_GPUs < gpu_count:
-                print(f"Increasing n_GPUs to {gpu_count} to utilize all available resources.")
-                args.n_GPUs = gpu_count
-    
-    if args.mode == 'train':
-        train(args)
-    elif args.mode == 'evaluate':
-        evaluate(args)
+    if args.save_checkpoint:
+        torch.save(model.state_dict(), args.save_checkpoint)
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--dataset_root', type=str, default='datasets')
+    parser.add_argument('--scale_factor', type=int, default=4)
+    parser.add_argument('--epochs', type=int, default=500)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--lr', type=float, default=1e-4)
+    parser.add_argument('--n_inputs', type=int, default=3)
+    parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--save_checkpoint', type=str, default=None)
+    train(parser.parse_args())
