@@ -1,0 +1,50 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Hardware/Software Tools}
+
+\section{Hardware Configuration}
+The implementation and training of the Swin-MMHCA model were performed on an industrial-grade high-performance computing (HPC) cluster. Specifically, we utilized an \textbf{NVIDIA DGX Station} equipped with Tesla V100 Tensor Core GPUs. The hardware specifications are as follows:
+\begin{itemize}
+    \item \textbf{GPU:} NVIDIA Tesla V100-SXM2-32GB (8x 32GB HBM2 VRAM per node).
+    \item \textbf{GPU Interconnect:} NVIDIA NVLink for high-speed GPU-to-GPU communication.
+    \item \textbf{CPU:} Dual Intel Xeon Gold / AMD EPYC processors.
+    \item \textbf{RAM:} 512GB+ System Memory.
+    \item \textbf{Storage:} Multi-terabyte NVMe SSD arrays for high-speed data access.
+\end{itemize}
+The use of the Tesla V100 architecture, with its 640 Tensor Cores per GPU, allowed us to leverage mixed-precision training and significantly accelerate the computation of the Swin Transformer's self-attention layers and the MMHCA module.
+
+\section{Software Environment}
+The software stack utilized for development and experimentation was carefully selected to ensure reproducibility and performance:
+\begin{itemize}
+    \item \textbf{Operating System:} Ubuntu 20.04 LTS (Optimized for DGX) / Windows 11 for local development.
+    \item \textbf{Programming Language:} Python 3.10.12.
+    \item \textbf{Deep Learning Framework:} PyTorch 2.9.1 with CUDA 13.0 and cuDNN 8.9 support.
+    \item \textbf{Parallel Computing:} NCCL (NVIDIA Collective Communications Library) for distributed data-parallel training across multiple GPUs.
+    \item \textbf{Medical Imaging Libraries:} SimpleITK for NIfTI processing, registration, and coordinate transformations.
+    \item \textbf{Evaluation Metrics:} TorchMetrics and LPIPS libraries for multi-dimensional assessment of super-resolution fidelity.
+    \item \textbf{Development Tools:} VS Code with Remote-SSH, PowerShell, and Git for version control and collaborative development.
+\end{itemize}
+
+\section{Preprocessing and Visualization Tools}
+The \textbf{SimpleITK} library served as the backbone of our preprocessing pipeline. It facilitated:
+\begin{enumerate}
+    \item \textbf{Multi-Modal Alignment:} Using Mattes Mutual Information to align T1, T2, and PD modalities on a voxel-wise basis.
+    \item \textbf{Intensity Rescaling:} Implementing robust min-max normalization to handle the high dynamic range of MRI signals.
+    \item \textbf{Data Augmentation:} Real-time geometric transformations to increase model generalization.
+\end{enumerate}
+For visualization, we utilized \textbf{Matplotlib} and \textbf{Seaborn} for quantitative plotting, and \textbf{ITK-SNAP} for qualitative inspection of the 3D NIfTI volumes and the super-resolved output slices.
+
+\section{Deep Learning Development Workflow}
+The development of Swin-MMHCA followed a structured iterative workflow, transitioning from local prototyping to full-scale training on the DGX Station.
+
+\subsection{Prototyping and Local Testing}
+Initial architectural experiments, such as testing the CNN modality stems and the fusion context encoder, were performed on local workstations. We utilized \textbf{VS Code} with the \textbf{Remote-SSH} extension to interact with the server seamlessly, allowing for real-time code editing and debugging.
+
+\subsection{Server-Side Training and Resource Management}
+Once the architecture was stabilized, the model was moved to the \textbf{Tesla V100} server. We utilized \textbf{Conda} environments to manage dependencies and ensure that the exact versions of PyTorch and CUDA were consistent across all runs. During long training sessions (lasting up to 72 hours for the 250-epoch cycle), we utilized \textbf{TensorBoard} to monitor the convergence of the multiple loss terms in real-time, allowing us to identify and correct any gradient instabilities early.
+
+\section{Advantages of the Software Stack}
+\begin{itemize}
+    \item \textbf{PyTorch 2.9.1:} Provided the dynamic computation graph support necessary for the complex routing logic in the MMHCA module.
+    \item \textbf{CUDA 13.0:} Leveraged the V100's HBM2 memory bandwidth, enabling us to use a larger batch size (16) and a deeper transformer configuration (768 embedding channels in the latent stage).
+    \item \textbf{SimpleITK:} Allowed for multi-threaded NIfTI I/O, which was critical for keeping the GPU saturated with data during training.
+\end{itemize}

@@ -1,0 +1,59 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Hardware and Software Tools}
+
+\section{Hardware Configuration}
+Training the Swin-MMHCA model at full scale required considerably more compute than a local workstation could offer. All model training and large-scale experimentation were carried out on an \textbf{NVIDIA DGX Station}, an industrial-grade high-performance computing system built around Tesla V100 Tensor Core GPUs. The key hardware specifications are listed below:
+
+\begin{itemize}
+   \item \textbf{GPU:} NVIDIA Tesla V100-SXM2-32GB (supporting up to 8 GPUs per node, each equipped with 32\,GB HBM2 VRAM).
+    \item \textbf{Interconnect between GPUs:} NVIDIA NVLink for high bandwidth GPU-to-GPU memory transfers.
+    \item \textbf{CPU:} Dual Intel Xeon Gold / AMD EPYC processor for pre-processing purposes.
+    \item \textbf{RAM:} At least 512\,GB, required to store large NIfTI files in memory during pre-processing.
+    \item \textbf{Storage:} Large NVMe SSD array for achieving the required read speeds for feeding
+\end{itemize}
+
+The total number of Tensor cores within each V100 GPU is 640 Tensor Cores designed specifically to facilitate matrix multiplication operations. This was an important aspect in ensuring that the self-attention computations within the SwinV2 backbone network and the cross-attention computations within the MMHCA block were optimized due to their extensive matrix computations.
+
+\section{Software Environment}
+The software stack was assembled with two goals in mind: reproducibility across experimental runs and computational efficiency at training time.
+
+\begin{itemize}
+    \item \textbf{Operating System:} Ubuntu 20.04 LTS (set up for the DGX cluster) for server-side training; Windows 11 for development and prototyping on the local machine.
+    \item \textbf{Programming Language:} Python 3.10.12.
+    \item \textbf{Deep Learning Framework:} PyTorch 2.9.1, built with CUDA 13.0 and cuDNN 8.9 integration.
+    \item \textbf{Multi-GPU Communication:} NCCL (NVIDIA Collective Communications Library), responsible for orchestrating distributed gradient aggregation on multiple GPUs.
+    \item \textbf{Medical Imaging:} SimpleITK, managing all NIfTI file processing, registration, and coordinate conversion tasks.
+    \item \textbf{Evaluation Metrics:} TorchMetrics and LPIPS library, which include distortion measures like PSNR/SSIM and perceptual quality evaluation.
+    \item \textbf{Software Development Tools:} Visual Studio Code with Remote
+\end{itemize}
+
+\section{Preprocessing and Visualization Tools}
+SimpleITK was positioned in the middle of the preprocessing chain because it could deal well with coordinate systems contained in the NIfTI volumes. SimpleITK served three key preprocessing functions:
+
+\begin{enumerate}
+    \item \textbf{Multi-Modality Alignment:} Fixed alignment between T1, T2, and PD images through rigid registration with Mattes Mutual Information used as a similarity measure, guaranteeing that there is voxel-wise matching prior to fusion.
+    \item \textbf{Intensity Normalization:} Intensity normalization using robust min-max scaling for each image in order to normalize the high dynamic intensity range of MRI images into the $[0, 1]$ interval.
+    \item \textbf{Data Augmentation:} Geometric data augmentation by applying random transformations such as flips, rotations, and elasticity, directly during training time.
+\end{enumerate}
+
+The visualization process was done in two ways. \textbf{Matplotlib} and \textbf{Seaborn} were used for creating quantitative plots, including the loss curves, metric histograms, and the performance of PSNR and SSIM values on a per-subject basis. ITK-SNAP was employed for evaluating the quality of the reconstructed 3D NIfTI volumes in qualitative terms; specifically, for viewing each slice of the image in relation to the actual data.
+
+\section{Development Workflow}
+Instead of jumping straight into the training process, a gradual method was adopted that allowed for the detection of any architectural problems early on and utilized the computing resources effectively.
+
+\subsection{Local Prototyping}
+At first, the tests were performed in our local machine, which consisted of testing the modality stem encoder, testing the fusion block architecture, and testing the tensor propagation dimension. It was done using the VS Code Remote-SSH extension which allowed us to write the code in our local machine and execute the code in the server.
+
+\subsection{Full-Scale Training on the DGX Station}
+Given the fixed architecture and the test run on the subset of the IXI data, the training process was moved to the Tesla V100 cluster. The setup of the conda environment ensured that all the versions of the libraries were consistent, allowing the comparison of the results achieved in different experiments.
+
+The full training process took a maximum of 72 hours for each set of 250 epochs. During this training period, \textbf{TensorBoard} was employed to keep track of the losses in all branches in real time, including super-resolution loss, segmentation auxiliary loss, and the lesion detection loss. This made it easy to identify cases where gradient instability occurred or the network deviated from its intended path.
+
+\section{Why This Stack}
+Each tool in the stack was chosen for a specific practical reason rather than familiarity alone:
+
+\begin{itemize}
+   \item \textbf{PyTorch 2.9.1:} The dynamic computation graph feature of PyTorch was critical in implementing the conditional routing scheme in the MMHCA component, where the attention computation pathway depended on the availability of certain modalities during inference time.
+    \item \textbf{CUDA 13.0:} Provided full access to the memory bandwidth of the HBM2, allowing us to conduct training with a batch size of 16 and a latent embedding dimension of 768, which would have otherwise required gradient accumulation on devices with lower memory capacity.
+    \item \textbf{SimpleITK:} The multi-threaded support provided by SimpleITK for NIfTI file I/O ensured that data loading did not become a limiting factor in the training process. Efficient GPU utilization over long periods of training had an impact on the overall training duration.
+\end{itemize}

@@ -1,0 +1,36 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Conclusion}
+
+\section{Summary of Achievements}
+Our study aimed at tackling an important issue that arises when working with clinical MRI images, namely, the dilemma between the imaging speed and quality, which leads to using low-resolution MRI scans more frequently than desired. The proposed Swin-MMHCA model tackles this problem from a different perspective by considering the reconstruction as a learned task and utilizing the complementary information available in the T1, T2, and PD MRI scans instead of addressing them individually.
+
+Specifically, our network consists of two main components, including a Swin Transformer V2 backbone for modeling long-range anatomical dependencies efficiently via self-attention without the quadratic computational complexity and a MMHCA module for cross-modality feature alignment. Furthermore, the network is completed with a structural edge guidance branch and auxiliary segmentation and lesion detection heads.
+
+On the IXI benchmark, Swin-MMHCA outperformed all compared methods at both $2\times$ and $4\times$ upscaling, with the largest margins appearing at $4\times$ — where the reconstruction task is hardest and the differences between approaches matter most. The ablation study confirmed that each component contributes meaningfully, and that the MMHCA cross-attention mechanism alone accounts for the largest share of the improvement over a unimodal baseline. Beyond the numbers, qualitative evaluation showed that the model reliably reconstructs the fine cortical geometry and sharp ventricular boundaries that clinical workflows depend on.
+
+Assuming that the methodology proves itself valid on further validation, the logical conclusion drawn from such research would be fairly simple – quick but less accurate imaging can be made better through computational means to fulfill a standard for which longer scan times have hitherto been necessary.
+
+\section{Project Limitations and Challenges}
+We encountered three limitations that deserve honest acknowledgment, both to inform future work and to set appropriate expectations about where the current system can and cannot be trusted.
+
+\begin{itemize}
+    \item \textbf{Computational Cost:} The hierarchy of the transformer model requires much more memory and computation power than that of the lightweight CNN models. While this may not be a problem when working on a research project using a powerful GPU workstation, it is definitely an issue when deploying the model in a clinical setting.
+
+    \item \textbf{Registration Sensitivity:} For the MMHCA architecture to be efficient, there must be proper alignment among the three different types of input data. However, simple rigid registration was used for alignment using SimpleITK. But this type of registration cannot be perfect as deformation in tissue structure between two sequences or movements by the subject during scanning might cause misalignment which will further lead to propagation of errors by the cross attention mechanism.
+
+    \item \textbf{Generalization to Pathological Cases:} IXI data set includes only subjects with normal brain structures. It is true; it was a feasible decision since it gave consistency in ground truth, but the point is that the model was trained for lesions on normal anatomical structures only. So, there is still an open question about how well the model performs when dealing with severe cases of tumors or atrophies.
+\end{itemize}
+
+\section{Future Research Directions}
+
+\subsection{3D Volumetric and Temporal Consistency}
+However, the current version processes the 2D slices individually. This is computationally feasible but not optimal since the anatomical continuity across slices represents a powerful prior that cannot be taken advantage of by a purely 2D model. One straightforward extension of this approach involves building a model that can process 3D patches ($D \times H \times W$), although this approach consumes more memory. In the case of longitudinal analysis, where repeated scans from the same patient over several months or years provide an opportunity to track progression, incorporating time into the model will enhance its ability to capture disease progression, especially in cases such as Alzheimer's.
+
+\subsection{Diffusion Model Refinement}
+The existing approach aims to balance between pixel-wise and perceptual loss terms. Recently, the Latent Diffusion Models (LDM) were shown capable of generating high-level structural texture in a way that is not achievable by regression models. One interesting approach could be to apply the output from the Swin-MMHCA network as a structural conditioner into the diffusion process which would allow to keep the anatomically correct structure of the reconstructed image using transformers while learning the microscopic details using diffusion.
+
+\subsection{Compression and Edge Deployment}
+However, making the model deployable in the clinical environment with limited resources will entail significant compression. Knowledge Distillation, where a student network learns to mimic the output of Swin-MMHCA, is a logical first step because this process maintains the quality of the representation learned by the large model while not constraining the architecture of the student model. Attention head pruning can serve as an alternative. Combining both techniques will result in inference costs low enough to enable integration into medical scanners or standalone devices.
+
+\section{Final Remarks}
+In one way, the contribution of this paper may be considered as an additional technical paper for the domain of super-resolution medical imaging. However, in another way, it can be said that the paper makes an effort to bridge a very practical gap between the capabilities of an MRI machine and the quality of results achieved by patients. The method presented in this paper is far from being able to solve the problem of MRI images' resolution in developing countries – the limitations outlined above are actual facts, and the process of transforming research into practice is a long one. However, this research proves that super-resolution based on multimodal transformer network architecture is highly effective and that the proposed approach has brought significant improvements to performance.

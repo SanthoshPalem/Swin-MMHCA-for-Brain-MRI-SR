@@ -11,6 +11,8 @@ epoch_checkpoints/
 epoch_visuals/
 results/
 *.png
+!img1.png
+!preprocessing_preview.png
 *.jpg
 *.csv
 !ARCHITECTURE_DIAGRAM.png

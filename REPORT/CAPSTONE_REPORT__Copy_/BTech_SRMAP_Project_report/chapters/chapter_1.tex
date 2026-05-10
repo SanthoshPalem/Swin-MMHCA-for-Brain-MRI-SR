@@ -1,0 +1,66 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Introduction}
+
+\section{Overview}
+No technology has had as revolutionary an effect on clinical neurology as the advent of Magnetic Resonance Imaging (MRI). In using nuclear magnetic resonance, rather than ionizing radiation, to capture images, MRI gives physicians the ability to visualize the internal structure of the brain through superior contrast imaging that CT and other similar imaging tools are simply not capable of achieving. The significance of MRI resides in its application in the diagnosis of various kinds of disorders, including those that require immediate imaging in an emergency situation like stroke patients and those that require long-term observation of the disease course like Alzheimer's and Multiple Sclerosis patients. The important term that must be considered here is 'spatial resolution.'
+
+\section{MRI Modalities and Clinical Significance}
+However, an ordinary MRI examination is not normally limited to a single type of scan, but rather comprises many types of “sequences,” which record different aspects of the body tissue’s physical characteristics. In this case, our study benefits from the strengths of three such sequences, namely T1-Weighted images, T2-Weighted images, and Proton Density (PD) images.
+
+\subsection{T1-Weighted Imaging (Anatomical Reference)}
+T1 imaging, which relies on the principle of longitudinal relaxation, utilizes both short TR and TE values. The images obtained thereby make fat tissues bright while leaving water and CSF dark. The great strength of T1 imaging is its ability to separate gray and white matter, which makes it a standard for brain structure analysis and volumetry. In the process of super-resolution pipeline, T1 imaging serves as a high-resolution ''structural anchor,'' because of its high intrinsic resolution.
+
+\subsection{T2-Weighted Imaging (Pathological Sensitivity)}
+In contrast, the strategy employed by T2-weighted imaging includes both long TR and long TE times. Under such conditions, the resulting images show water and cerebrospinal fluid (CSF) as hyperintense signals, while the fatty regions show up as hypointense signals. As such, this type of imaging can be very useful when looking for pathological areas because many diseases are characterized by increased levels of water and CSF in the brain, which will show up as bright areas. However, there is one disadvantage to this method in the clinical setting. Namely, T2 weighted images require longer time to acquire high-resolution images.
+
+\subsection{Proton Density (PD) Imaging}
+The goal of PD imaging is to reduce both T1 and T2 contrast in order to create an image where the signal depends mainly on the number of hydrogen atoms within the tissue. This results in excellent signal-to-noise ratio and allows distinguishing between the gray matter-CSF interface and any white matter abnormalities not seen by other types of scans.
+
+\section{The Sampling Trade-off and K-Space Truncation}
+The MRI physics starts by making an undesirable compromise. In order to achieve the required resolution, one has to sample the high frequencies which reside at the periphery of k-space. Every phase encoding necessary to access these frequencies will only increase the acquisition time. There is no alternative in physics.
+
+However, long acquisition times give rise to practical difficulties. Even if a patient is still for several seconds, a slight movement during a 15-min acquisition will cause image blurring beyond medical value. Other than patient discomfort, such motions lead to artifacts and are the most frequent cause of repeat examinations, which raises both expenses and waiting times. The super-resolution paradigm provides a promising solution. By capturing the low-frequency center of k-space and then applying anatomically-learned priors to infer high frequencies, we can reconstruct information that was not captured before.
+
+The problem is of more significance than simple image quality. Methods for automated brain volumetric assessment, cortical thickness estimation, or radiomic feature extraction all require high-quality images as input to deliver clinically reliable results. Low-resolution acquisitions introduce a phenomenon known as the ``partial volume effect, '' where each voxel contains information about several tissues. As such, low-resolution MRI images inject noise into data that clinicians depend on. Thus, there is a clear need for techniques to improve the image resolution of both existing and fast acquisitions without modification of the scanner itself.
+
+\section{Physical Constraints and Hardware Limitations}
+Even in those instances where the clinical necessity for high resolution imaging is clearly established, physics poses strict limitations on the process. The resolution of the MRI depends on the field gradient strength and duration of the signal acquisition window. Per the Nyquist-Shannon sampling theory, increasing resolution is possible only by increasing the density of the sampled k-space data, which inevitably leads to increased acquisition times.
+
+Another problem arises from the antagonistic relationship between resolution and the signal-to-noise ratio (SNR). The reduced voxel size used for achieving higher resolution decreases the number of hydrogen atoms providing signals and thus degrades the SNR. The only available option of compensating for this effect — increasing NEX — is also associated with additional time. In the clinical setting, for example, the acquisition of 3D high-resolution T2-weighted images typically lasts between 10 and 15 minutes. In cases where there are patients suffering from claustrophobia or having tremor symptoms and even small children incapable of staying still for such a period of time, this time is unacceptable due to motion artifacts.
+
+\section{Socio-Economic Impact and Accessibility}
+These constraints on the hardware side have repercussions which go far beyond the single instance of an imaging session. MRI technology represents some of the most capital-intensive medical technologies currently available, necessitating substantial initial investment, as well as costly support infrastructures and costly maintenance costs. If the duration of each imaging process is extended, the overall number of patients who may be diagnosed decreases, as does the cost of each imaging procedure.
+
+The disparity is greatest in poorer nations and in rural areas, where a high-field scanner like a 3T or 7T scanner is unaffordable. Physicians in such contexts are limited to the usage of outdated 1.5T scanners or low-field machines that inherently deliver poorer resolution scans. In essence, the idea of computational super-resolution offers an alternative route through the hardware obstacle. By upgrading the quality of lower field machines' or quicker imaging protocols' imagery, SR may help extend the diagnostic capacity of the available hardware. The concept is in perfect harmony with the tenets of Value-Based Healthcare since increased resolution and decreased scanning time are two distinct facets of the same coin.
+
+\section{Evolution of Image Super-Resolution}
+The history of super-resolution image processing in the last decade shows a paradigm shift in the way we approach the problem of filling in gaps of information. Traditional methods relied on classical interpolation schemes such as Bicubic filtering or Lanczos resampling. These algorithms are computationally efficient and have a solid theoretical basis. However, they cannot restore the information that has not been collected at the time of image acquisition. Images generated using traditional interpolation techniques appear blurred and lack high-frequency features necessary for clinical assessment.
+
+Deep learning opened up a new horizon in the field of image super-resolution. Architectures based on Convolutional Neural Networks (CNN) including SRCNN and its successors such as EDSR provided a breakthrough. Instead of interpolating the missing data, CNN-based algorithms learn anatomical structures from high-quality images in the training set and extrapolate the findings to unseen data. This approach showed better performance compared to traditional methods. Nonetheless, CNN-based models suffer from intrinsic limitations. Specifically, the receptive field of each layer is limited to the vicinity of the current point. Thus, CNNs can hardly benefit from global image properties such as bilateral symmetry or cortical segmentation.
+
+\section{The Rise of Transformers and Multi-Modal Fusion}
+Vision Transformers (ViT) and Swin Transformer architecture have come up with a solution to overcome this challenge. The use of self-attention allows transformers to establish connections between any two points on the image irrespective of their distance from each other. Any feature present in the frontal lobe can influence the reconstruction process of features in the occipital lobe, something that is not possible with local convolutions. It makes sense since the long-term dependency model of transformers matches the global anatomy of the brain.
+
+The multiplicity of MRI presents another avenue for improvement. As all three modalities – T1, T2, and PD – of the same patient are scanned together, data pairs can be generated without much difficulty. With high-resolution T1 images being obtained fairly quickly, they are well suited to be used as an anatomical guide in enhancing low-resolution T2 images. Using one imaging modality as a guide for reconstructing another is the central theme behind MCSR.
+
+\section{The Proposed Swin-MMHCA Framework}
+In this study, we propose \textbf{Swin-MMHCA}, a novel multi-task architecture that aims to combine the strong global representation capability of hierarchical Vision Transformers with our proposed MMHCA mechanism for brain MRI super-resolution. The model leverages the Swin Transformer V2 backbone to learn high-level hierarchical representations, which are further aligned and integrated with edge information using cross-attention in a transformer network.
+
+The main contributions of this work are:
+\begin{enumerate}
+    \item A hierarchical architecture grounded in Swin Transformer V2, capable of capturing both fine-grained local textures and the broader anatomical context of the whole brain.
+    \item An MMHCA mechanism designed to exploit the natural correlations between imaging modalities acquired from the same subject.
+    \item A multi-task learning strategy that incorporates segmentation and lesion detection heads, encouraging the network to maintain semantic consistency throughout the reconstruction process.
+    \item Thorough evaluation on the IXI dataset, with results demonstrating competitive performance in terms of PSNR and SSIM against existing methods.
+\end{enumerate}
+
+\section{Organization of the Report}
+The chapters that follow are organized as below:
+\begin{itemize}
+    \item \textbf{Chapter 2} surveys the literature, tracing the development of super-resolution methods and the transition toward transformer-based approaches.
+    \item \textbf{Chapter 3} presents the design and theoretical foundations of the Swin-MMHCA framework in detail.
+    \item \textbf{Chapter 4} covers the practical implementation — the preprocessing pipeline, training setup, and experimental configuration.
+    \item \textbf{Chapter 5} reports and discusses the experimental results, including both quantitative metrics and qualitative image comparisons.
+    \item \textbf{Chapter 6} documents the hardware and software environment used throughout this research.
+    \item \textbf{Chapter 7} draws conclusions and identifies directions for future work.
+\end{itemize}

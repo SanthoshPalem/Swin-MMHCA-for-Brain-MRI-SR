@@ -1,0 +1,50 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Literature Survey}
+
+\section{Introduction}
+The landscape of medical image super-resolution (SR) has undergone a paradigm shift from classical interpolation algorithms to sophisticated deep learning architectures. This section provides an exhaustive review of the technological evolution, starting from early convolutional neural networks (CNNs) to the most recent Transformer-based multi-modal frameworks.
+
+\section{Foundations of MRI Super-Resolution}
+Magnetic Resonance Imaging (MRI) is a cornerstone of clinical neurology, yet its acquisition is governed by fundamental physical trade-offs between spatial resolution, signal-to-noise ratio (SNR), and scan duration. The super-resolution inverse problem aims to reconstruct a high-resolution (HR) image from one or more low-resolution (LR) observations. Early computational solutions relied on classical interpolation techniques such as Bicubic and Lanczos filtering, which fail to recover high-frequency anatomical details and often introduce blurring artifacts.
+
+\section{The CNN Era: From SRCNN to EDSR}
+The application of deep learning to SR was pioneered by the Super-Resolution Convolutional Neural Network (SRCNN), which demonstrated that a shallow three-layer end-to-end network could significantly outperform traditional algorithms. Following this milestone, the field progressed rapidly toward deeper architectures. The Very Deep Super-Resolution (VDSR) network introduced global residual learning to facilitate the training of 20-layer networks, effectively addressing the vanishing gradient problem. 
+
+The Enhanced Deep Super-Resolution (EDSR) model marked a significant optimization by removing unnecessary Batch Normalization layers, allowing for a substantial increase in model depth and width while maintaining stability. Subsequent innovations like the Residual Dense Network (RDN) and the Information Distillation Network (IDN) further improved feature extraction efficiency. However, a major limitation of these CNN-based methods is their localized receptive field; they focus on small neighborhoods of pixels and often fail to capture the global structural context and anatomical symmetry essential for brain MRI interpretation.
+
+\section{Attention Mechanisms and Multi-Modal Fusion}
+To address the limitations of pure CNNs, researchers introduced attention mechanisms to recalibrate feature maps based on their importance. Squeeze-and-Excitation (SE) networks and Convolutional Block Attention Modules (CBAM) provided a mechanism for channel and spatial attention. In the medical domain, multi-modal MRI protocols (T1, T2, PD) provide a "data-rich" environment where reference modalities can guide the enhancement of a target modality.
+
+The Multimodal Multi-Head Convolutional Attention (MMHCA) framework achieved a significant breakthrough by employing multiple attention heads with varying kernel sizes to fuse features across MRI contrasts. While effective, MMHCA remains rooted in standard convolutional operations, which restricts its ability to model the long-range dependencies that define global brain morphology.
+
+\section{Comparison of CNNs and Vision Transformers}
+The dominance of Convolutional Neural Networks (CNNs) in medical imaging for over a decade was rooted in their ability to learn hierarchical features with translational invariance. However, CNNs possess inherent limitations that Vision Transformers (ViTs) are uniquely equipped to address.
+
+\subsection{Localized Receptive Fields vs. Global Context}
+The fundamental operation in a CNN is the convolution, which aggregates information from a small, local neighborhood of pixels (typically $3 \times 3$ or $5 \times 5$). While stacking multiple layers increases the effective receptive field, it still requires a very deep network to capture global relationships. In brain MRI, global context is crucial for maintaining anatomical symmetry and ensuring that features in the frontal lobe are consistent with those in the occipital lobe. Transformers, through their self-attention mechanism, can model long-range dependencies directly, allowing every patch in the image to interact with every other patch.
+
+\subsection{Inductive Biases and Data Efficiency}
+CNNs possess strong "inductive biases," such as locality and weight sharing, which make them highly efficient on smaller datasets. ViTs, on the other hand, have much weaker inductive biases and typically require larger datasets to learn the underlying structure of the data. The Swin Transformer architecture strikes a balance by introducing a hierarchical structure and window-based attention, which reintroduces some of the locality benefits of CNNs while maintaining the global modeling power of Transformers.
+
+\section{Advances in Swin Transformer V2}
+The Swin-MMHCA framework utilizes the second generation of the Swin Transformer (SwinV2), which introduces several key innovations to improve training stability and scale to higher resolutions.
+
+\subsection{Post-Normalization (ResPostNorm)}
+In the original Swin Transformer, Layer Normalization (LN) was applied before the attention and MLP modules (Pre-Norm). While this facilitates optimization, it can lead to unstable gradients in very deep networks. SwinV2 moves the LN to the end of each residual branch (Post-Norm), which significantly improves the dynamic range of feature maps and prevents activation values from exploding at high depths.
+
+\subsection{Scaled Cosine Attention}
+Standard dot-product attention can suffer from saturation when the query and key vectors have large magnitudes, leading to vanishing gradients in the Softmax layer. Scaled Cosine Attention replaces the dot product with a cosine similarity, effectively bounding the attention logits to the $[-1, 1]$ range. This ensures that the attention mechanism remains sensitive even during the later stages of training.
+
+\section{Multi-Task Learning and Semantic Supervision}
+A growing trend in medical SR is the use of auxiliary tasks to regularize the training process and ensure anatomical fidelity. SegSRGAN established that simultaneously training for super-resolution and segmentation prevents the "hallucination" of artifacts by forcing the model to respect tissue boundaries. More recent works like ReconFormer and CSRS have shown that joint intensity and label upsampling improve downstream diagnostic accuracy in neurodegenerative diseases.
+
+\section{Summary of Research Gaps}
+Despite these advancements, several critical gaps remain:
+\begin{enumerate}
+    \item \textbf{Global-Local Boundary Preservation:} While Transformers capture global context, they can sometimes over-smooth local anatomical edges.
+    \item \textbf{Complex Multi-Modal Fusion:} Existing fusion strategies often treat all modalities equally. 
+    \item \textbf{Efficient Upsampling Artifacts:} Traditional transposed convolutions in the decoder are prone to checkerboard artifacts. 
+    \item \textbf{Lack of Pathological Awareness:} Many SR models focus purely on intensity fidelity. 
+\end{enumerate}
+
+Our Swin-MMHCA framework addresses these gaps by combining SwinV2's global modeling with structural edge guidance and multi-task semantic supervision.

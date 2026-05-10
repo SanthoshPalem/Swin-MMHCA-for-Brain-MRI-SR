@@ -4,6 +4,7 @@ import torch.utils.data as data
 import nibabel as nib
 import numpy as np
 from PIL import Image
+import glob
 
 class MultiModalSuperResDataset(data.Dataset):
     def __init__(self, dataset_root, modalities=['T1', 'T2', 'PD'], scale_factor=4, transform=None, split='train', shuffle=True):
@@ -128,43 +129,85 @@ class MultiModalSuperResDataset(data.Dataset):
         
         return lr_images, hr_image
 
-if __name__ == '__main__':
-    from torchvision.transforms import ToTensor
-    import os
-    
-    # Get the directory of the current script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # Go up two levels to the project root
-    project_root = os.path.dirname(os.path.dirname(script_dir))
-    
-    # Construct the path to the dataset
-    dataset_root = os.path.join(project_root, 'datasets')
-    
-    # Example of how to use the dataset
-    train_dataset = MultiModalSuperResDataset(
-        dataset_root=dataset_root,
-        modalities=['T1', 'T2', 'PD'],
-        scale_factor=4,
-        transform=ToTensor(),
-        train=True
-    )
-    
-    val_dataset = MultiModalSuperResDataset(
-        dataset_root=dataset_root,
-        modalities=['T1', 'T2', 'PD'],
-        scale_factor=4,
-        transform=ToTensor(),
-        train=False
-    )
-    
-    print(f"Number of training samples: {len(train_dataset)}")
-    print(f"Number of validation samples: {len(val_dataset)}")
-    
-    if len(val_dataset) > 0:
-        lr_imgs, hr_img = val_dataset[0]
+class PreprocessedSuperResDataset(data.Dataset):
+    def __init__(self, processed_dir, modalities=['T1', 'T2', 'PD'], scale_factor=4, split='train', shuffle=True, transform=None):
+        super(PreprocessedSuperResDataset, self).__init__()
+        self.processed_dir = processed_dir
+        self.modalities = modalities
+        self.scale_factor = scale_factor
+        self.split = split  # Used to mathematically verify Data Augmentation safety
+        self.transform = transform # Kept for API compatibility
         
-        print(f"Number of LR images: {len(lr_imgs)}")
-        print(f"LR image shape: {lr_imgs[0].shape}")
-        print(f"HR image shape: {hr_img.shape}")
-    else:
-        print("No samples found in the validation dataset.")
+        all_samples = sorted(glob.glob(os.path.join(self.processed_dir, "*.pt")))
+        if not all_samples:
+            print(f"Warning: No .pt files found in {self.processed_dir}")
+            
+        subject_dict = {}
+        for f in all_samples:
+            base_id = os.path.basename(f).split('_slice_')[0]
+            if base_id not in subject_dict:
+                subject_dict[base_id] = []
+            subject_dict[base_id].append(f)
+            
+        subject_ids = sorted(list(subject_dict.keys()))
+        if shuffle:
+            np.random.seed(42)  # Deterministic split to prevent data leakage
+            np.random.shuffle(subject_ids)
+            
+        num_subjects = len(subject_ids)
+        train_end = int(num_subjects * 0.8)
+        val_end = int(num_subjects * 0.9)
+        
+        if split == 'train':
+            split_ids = subject_ids[:train_end]
+        elif split == 'validation':
+            split_ids = subject_ids[train_end:val_end]
+        elif split == 'test':
+            split_ids = subject_ids[val_end:]
+        else:
+            raise ValueError("Invalid split")
+            
+        self.samples = []
+        for sid in split_ids:
+            self.samples.extend(subject_dict[sid])
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        file_path = self.samples[index]
+        data_tensor = torch.load(file_path, weights_only=True) # [3, 256, 256]
+        
+        # --- DYNAMIC DATA AUGMENTATION (ONLY FOR TRAINING SET) ---
+        if self.split == 'train':
+            # 50% chance Horizontal Flip
+            if torch.rand(1).item() > 0.5:
+                data_tensor = torch.flip(data_tensor, dims=[2])
+                
+            # 50% chance Vertical Flip
+            if torch.rand(1).item() > 0.5:
+                data_tensor = torch.flip(data_tensor, dims=[1])
+                
+            # Random 90, 180, 270 Degree Rotations
+            k = int(torch.randint(0, 4, (1,)).item())
+            if k > 0:
+                data_tensor = torch.rot90(data_tensor, k, [1, 2])
+        # ---------------------------------------------------------
+        
+        target_modality_idx = self.modalities.index('T2')
+        hr_image = data_tensor[target_modality_idx].unsqueeze(0) # [1, 256, 256]
+        
+        lr_hw = 64 if self.scale_factor == 4 else 128
+        lr_images = []
+        for i in range(len(self.modalities)):
+            mod_hr = data_tensor[i].unsqueeze(0).unsqueeze(0) # [1, 1, 256, 256]
+            mod_lr = torch.nn.functional.interpolate(
+                mod_hr, 
+                size=(lr_hw, lr_hw), 
+                mode='bicubic', 
+                align_corners=False
+            )
+            mod_lr = torch.clamp(mod_lr, 0.0, 1.0)
+            lr_images.append(mod_lr.squeeze(0)) # [1, lr_hw, lr_hw]
+            
+        return lr_images, hr_image

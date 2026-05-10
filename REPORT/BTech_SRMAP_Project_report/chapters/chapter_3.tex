@@ -1,0 +1,109 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Design and Methodology}
+
+\section{Introduction}
+The proposed Swin-MMHCA framework is a unified, multi-task architecture designed to bridge local convolutional features with global transformer-based context. This chapter details the theoretical foundations and the modular design of the architecture.
+
+\section{Theoretical Framework}
+This section details the physical, mathematical, and computational principles that underpin our research.
+
+\subsection{Physics of MRI and Bloch Equations}
+The generation of an MRI signal is governed by the behavior of hydrogen nuclei in a magnetic field. When a subject is placed in a static magnetic field $B_0$, the protons align, creating a net magnetization vector $M$. The evolution of this vector is described by the \textit{Bloch Equations}:
+\begin{equation}
+    \frac{d\mathbf{M}}{dt} = \gamma \mathbf{M} \times \mathbf{B} - \frac{M_x \mathbf{i} + M_y \mathbf{j}}{T_2} - \frac{(M_z - M_0) \mathbf{k}}{T_1}
+\end{equation}
+where $T_1$ and $T_2$ are the longitudinal and transverse relaxation times. $T_1$-weighted scans provide anatomical maps, while $T_2$-weighted scans are sensitive to pathology. Our model uses the structural sharpness of $T_1$ to guide $T_2$ enhancement.
+
+\subsection{K-Space and Image Formation}
+The raw data acquired by an MRI scanner is in the spatial frequency domain, known as \textit{k-space}. The relationship between k-space $S(k_x, k_y)$ and image $I(x, y)$ is a 2D Inverse Fourier Transform. High-resolution requires wider k-space coverage, which increases scan time. Super-resolution algorithms effectively act as "k-space extrapolators," predicting missing high-frequency coefficients.
+
+\subsection{The Super-Resolution Inverse Problem}
+The relationship between high-resolution ground truth $X$ and low-resolution $Y$ is:
+\begin{equation}
+    Y = (X \ast K) \downarrow_s + \eta
+\end{equation}
+Super-resolution is an ill-posed inverse problem. To solve for $X$, we incorporate a regularization term $\Phi(X)$ representing anatomical priors. In our framework, the Swin Transformer V2 serves as this learnable prior.
+
+\subsection{Principles of Swin Transformer V2}
+The core of our backbone is the \textit{Window-based Multi-head Self-Attention} (W-MSA). Standard self-attention has quadratic complexity, making it prohibitive for high-resolution images. Swin Transformers partition the image into non-overlapping windows, reducing complexity to linear. To facilitate cross-window communication, Swin introduces \textit{Shifted Windowing} (SW-MSA). SwinV2 improves this with \textit{Log-spaced Continuous Relative Positional Bias} (Log-CPB), ensuring generalization across resolutions.
+
+\section{Proposed Swin-MMHCA Architecture}
+The model follows a modular design consisting of several interconnected phases.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\textwidth]{figures/SwinMMHCA_arch.png}
+    \caption{Detailed Architecture of the Swin-MMHCA Framework, integrating hierarchical Swin Transformer V2 blocks with Multi-Modal Hybrid Cross Attention (MMHCA).}
+    \label{fig:architecture}
+\end{figure}
+
+
+\subsection{Phase I: Modality-Specific Stem Encoding}
+To handle unique intensity distributions, we employ independent \textit{Modality Stems}. Each stem is a dedicated CNN mapping single-channel input (T1, T2, PD) into a 96-dimensional latent space. This dual-layer convolution ensures that the model learns modality-specific textures before fusion.
+
+\subsection{Phase II: Multimodal Contextual Fusion}
+Features are concatenated and passed through a \textit{Fusion Context Encoder} (consisting of Residual Blocks) to extract inter-modal correlations, forming a "global anatomical anchor."
+
+\subsection{Phase III: Structural Edge Guidance Branch}
+A dedicated \textit{Sobel Edge Extractor} operates on all modalities to compute gradient magnitudes. These maps provide high-frequency boundary information fused with the context map to guide the super-resolution process.
+
+\subsection{Phase IV: Hierarchical Swin Transformer V2 Backbone}
+The core deep feature extraction is performed by a SwinV2 backbone. It utilizes shifted-window self-attention to capture long-range dependencies. The backbone is hierarchical, processing features at multiple scales ($H/2, H/4, H/8$).
+
+\subsection{Phase V: Multi-Modal Hybrid Cross-Attention (MMHCA)}
+To effectively inject the global context $F_{global}$ into the deep hierarchical features, we employ a specialized \textit{Transformer-based Multi-Modal Hybrid Cross-Attention} mechanism. Unlike standard self-attention which computes correlations within a single modality, MMHCA is designed to align features across disparate MRI contrasts.
+
+The Cross-Attention mechanism is formulated as follows:
+\begin{equation}
+    \text{Q} = F_{backbone} W^Q, \quad \text{K} = F_{global} W^K, \quad \text{V} = F_{global} W^V
+\end{equation}
+where $W^Q, W^K, W^V$ are learnable projection matrices. The attention scores are computed using the scaled dot-product:
+\begin{equation}
+    \text{Attention}(Q, K, V) = \text{Softmax}\left(\frac{QK^T}{\sqrt{d_k}} + B\right)V
+\end{equation}
+In this configuration, the "Queries" represent the target T2 features being enhanced, while the "Keys" and "Values" contain the structural information from the registered T1 and PD modalities. This allows the model to "query" the location of sharp anatomical boundaries in the T1 image to guide the pixel placement in the T2 output. 
+
+Furthermore, we utilize a \textit{Multi-Head} approach (with 8 heads in the core layers), enabling the model to simultaneously focus on different semantic aspects, such as gray-matter density and white-matter fiber orientations. This dynamic fusion is significantly more robust than static concatenation, as it can adapt to local registration errors and varying noise levels across modalities.
+
+\subsection{Internal Structure of the SwinV2 Block}
+Each stage of the SwinV2 backbone is composed of an even number of SwinV2 Blocks. Each block consists of three main components:
+\begin{enumerate}
+    \item \textbf{Window-based Multi-head Self-Attention (W-MSA):} Computes attention within non-overlapping windows to capture local-to-global relationships.
+    \item \textbf{Shifted Window-based Multi-head Self-Attention (SW-MSA):} Shifts the window partition to allow for cross-window interaction.
+    \item \textbf{Multi-Layer Perceptron (MLP):} A two-layer fully connected network with GeLU activation that processes the attended features.
+\end{enumerate}
+The residual connection in SwinV2 is formulated as:
+\begin{equation}
+    x = x + \text{LN}(\text{MSA}(x)), \quad x = x + \text{LN}(\text{MLP}(x))
+\end{equation}
+This hierarchical arrangement allows the network to learn coarse anatomical structures in the early stages and fine-grained textures in the later stages.
+
+\subsection{Phase VI: Progressive Upsampling and Multi-Task Heads}
+The transformation of the $8 \times 8$ (or $16 \times 16$) latent features into a $256 \times 256$ high-resolution image is handled by a series of \textit{PixelShuffle} blocks. Unlike transposed convolutions, PixelShuffle rearranges the channel dimension into spatial dimensions, avoiding the "checkerboard" artifacts common in deep learning SR.
+
+\subsubsection{Auxiliary Task Label Generation}
+To train the multi-task heads without requiring manual annotations for every slice, we utilize an automated "pseudo-label" generation process:
+\begin{itemize}
+    \item \textbf{Segmentation Mask:} Generated by applying an adaptive threshold to the high-resolution ground truth, isolating the brain tissue from the background.
+    \item \textbf{Lesion/High-Variance Map:} Generated by computing the local standard deviation of the image intensities and isolating regions that deviate significantly from the mean, effectively identifying cortical folds and potential pathological features.
+\end{itemize}
+These auxiliary tasks act as structural regularizers, forcing the SwinV2 backbone to preserve the semantic integrity of the brain anatomy during the upscaling process.
+
+\begin{table}[H]
+\centering
+\caption{Backbone Stage-wise Configuration for Swin-MMHCA.}
+\label{tab:backbone_specs}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Stage} & \textbf{Resolution} & \textbf{Blocks} & \textbf{Heads} & \textbf{Channels} \\
+\midrule
+Patch Embed & $H/2 \times W/2$ & - & - & 96 \\
+Stage 1 & $H/2 \times W/2$ & 2 & 3 & 96 \\
+Downsample 1 & $H/4 \times W/4$ & - & - & 192 \\
+Stage 2 & $H/4 \times W/4$ & 2 & 6 & 192 \\
+Downsample 2 & $H/8 \times W/8$ & - & - & 384 \\
+Stage 3 & $H/8 \times W/8$ & 6 & 12 & 384 \\
+Latent Stage 4 & $H/8 \times W/8$ & 2 & 24 & 768 \\
+\bottomrule
+\end{tabular}
+\end{table}

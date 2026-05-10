@@ -1,0 +1,218 @@
+%%
+%% This is a LaTeX template for writing Project Reports 
+%% of the M Tech Programmes of APJAKTU. 
+%% The template was developed by
+%%     Dr V N Krishnachandran, 
+%%     Vidya Academy of Science & Technology, 
+%%     Thrissur - 680501.
+%% Customized for ECE department, College of Engineering Trivandrum, by Christy James Jose, March 2024 
+%% 
+\documentclass[a4paper, 12pt, oneside]{book}
+
+\input{preamble}
+
+%%
+\begin{document}
+%%
+%% **********************************
+%%
+\setstretch{1.15}
+%%
+%% In the next line, replace Title of the Project with the title of 
+%% students's Project.
+\ttitle{Swin-MMHCA: Hierarchical Vision Transformer with Multi-Modal Hybrid Cross Attention for Brain MRI Super-Resolution}
+
+%% In the next line replace Student Name by name of the student
+\nnameone{Santhosh Palem}
+\nnametwo{Jagadeesh Ospari}
+\nnamethree{Chakravarthi Padyala}
+\nnamefour{}
+%% In the next line replace nnnnnnnnnn by the Register Number of  student.
+\rregisternumberone{AP22110011276}
+\rregisternumbertwo{AP22110011304}
+\rregisternumberthree{AP22110011269}
+\rregisternumberfour{}
+
+%% In the next line, replace Specialization Name by 
+%% the name of the MTech specialization 
+%% (e.g. Structural Engineering, Embedded Systems)
+
+%%\sspecialization{Electronics \& Communication Engineering}
+%\sspecialization{Applied Electronics \& Instrumentation Engineering}
+
+%%
+%% In the next line, replace logo by the filename of the image 
+%% of the emblem/logo of the College. File can be jpg or png 
+%% formats. File name extension is not required.
+\eemblem{figures/SRMAPLOGO}
+%%
+%% In the next line, replace Name of Department by 
+%% the name of the Department which is offering the 
+%% BTech programme. (Recall that to get &, 
+%% one has to input \&.)
+\ddept{Computer Science \& Engineering}
+
+%%
+%% In the next line, enter name of College.
+\ccollege{SRM University-AP}
+%%
+%% In the next line, replace Address Line 1 by the first line
+%% in the address of the College, or whatever is relevant.
+\aaddresslinei{Neerukonda, Mangalgiri, Guntur}
+%%
+%% In the next line, replace Address Line 2 by the second line
+%% in the address of the College, or whatever is relevant.
+\aaddresslineii{Andhra Pradesh - 522 240}
+%%
+%% In the next line, replace Month Year by 
+%% the month and year in
+%% which the project report is being submitted.
+\ddate{May 2026}
+%%
+%% In the next line, replace Name of Guide by the name of the 
+%% Project guide or the internal supervisor. 
+\gguide{Dr. Syed Sameen Ahmad Rizvi}
+%%
+%% In the next line, replace Name of HoD by 
+%% the name of the Head of Department.
+\hhod{Dr. Murali Krishna Enduri}
+%%
+%% Project Co- ordinator1
+%\pprojectco{Prof. Coordinator 1}
+
+%% Project Co- ordinator2
+%\pprojectcoii{Prof. PG Professor}
+
+
+%% There is a file named titlepage.tex. DO NOT EDIT the file.
+\input{titlepage}
+%%
+%% There is file named declaration.tex. DO NOT EDIT the file.
+\input{declaration} 
+%%
+%% There is file named certificate.tex. DO NOT EDIT the file.
+\input{certificate}
+%%
+%% There is file named acknowledgment.tex. The file MAY BE EDITED.
+\input{acknowledgment}
+%%
+%% There is a file named abstract.tex. Edit the file 
+%% to include the abstract of the Project.
+\input{abstract}
+%%
+%% Do not make any changes in the next six lines.
+%%
+\begin{spacing}{1.15}
+\tableofcontents
+\newpage
+\listoftables
+\addcontentsline{toc}{chapter}{LIST OF TABLES}
+\newpage
+\listoffigures
+\addcontentsline{toc}{chapter}{LIST OF FIGURES}
+%%
+\chapter*{ABBREVIATIONS}
+\addcontentsline{toc}{chapter}{ABBREVIATIONS}
+
+\begin{center}
+\begin{tabular}{p{0.2\textwidth}|p{0.8\textwidth}}
+\hline
+\textbf{Abbreviation} & \textbf{Expansion} \\
+\hline
+AI          & Artificial Intelligence \\
+BCE         & Binary Cross Entropy \\
+CNN         & Convolutional Neural Network \\
+CSF         & Cerebrospinal Fluid \\
+CUDA        & Compute Unified Device Architecture \\
+DICOM       & Digital Imaging and Communications in Medicine \\
+DGX         & Deep Learning GPU Box \\
+EDSR        & Enhanced Deep Residual Networks \\
+GAN         & Generative Adversarial Network \\
+HPC         & High Performance Computing \\
+HR          & High Resolution \\
+IXI         & Information eXtraction from Images \\
+LPIPS       & Learned Perceptual Image Patch Similarity \\
+LR          & Low Resolution \\
+MMHCA       & Multi-Modal Hybrid Cross Attention \\
+MRI         & Magnetic Resonance Imaging \\
+MSE         & Mean Squared Error \\
+NIfTI       & Neuroimaging Informatics Technology Initiative \\
+PSNR        & Peak Signal-to-Noise Ratio \\
+SR          & Super-Resolution \\
+SSIM        & Structural Similarity Index \\
+T1          & Longitudinal Relaxation Time \\
+T2          & Transverse Relaxation Time \\
+ViT         & Vision Transformer \\
+W-MSA       & Window-based Multi-head Self-Attention \\
+\hline
+\end{tabular}
+\end{center}
+
+\chapter*{NOTATIONS}
+\addcontentsline{toc}{chapter}{NOTATIONS}
+
+\begin{center}
+\begin{tabular}{p{0.2\textwidth}|p{0.8\textwidth}}
+\hline
+\textbf{Notation}    & \textbf{Description} \\
+\hline
+$X$            & High-Resolution (HR) ground truth image \\
+$\hat{X}$      & Super-resolved (SR) output image \\
+$Y$            & Low-Resolution (LR) input image \\
+$K$            & Blur kernel / Point Spread Function (PSF) \\
+$\downarrow_s$ & Downsampling operator with scale factor $s$ \\
+$\Phi(X)$      & Learnable anatomical prior / Regularization term \\
+$\mathcal{L}$  & Loss / Objective function \\
+$\sigma$       & Standard deviation / Variance \\
+$\mu$          & Mean pixel intensity \\
+$H, W, C$      & Height, Width, and Channel dimensions \\
+$Q, K, V$      & Query, Key, and Value matrices (Attention) \\
+$\gamma$       & Gyromagnetic ratio / Focal loss parameter \\
+$B_0$          & Static magnetic field strength \\
+\hline
+\end{tabular}
+\end{center}
+%
+\end{spacing}
+%
+\newpage
+\pagenumbering{arabic}
+%%
+%% **********************************************************
+%%
+
+
+\input{chapters/chapter_1}   % Introduction
+\input{chapters/chapter_2}   % Literature Survey
+\input{chapters/chapter_3}   % Design and Methodology
+\input{chapters/chapter_4}   % Implementation
+\input{chapters/chapter_5}   % Results & Discussion
+\input{chapters/chapter_6}   % Hardware/Software Tools
+\input{chapters/chapter_7}   % Conclusion
+\input{chapters/chapter_8}   % Ethical Considerations and Social Impact
+
+
+
+
+
+
+
+%%
+%% **********************************************************
+%%
+%% There is a file named references.tex. The file contains 
+%% some sample references. Edit that file to include 
+%% the details of the actual references.
+\input{references}
+%%
+%%
+%\appendix
+%\achapter{Appendix 1}
+%%
+%% There is a file named publications.tex. The file contains 
+%% some sample publications. Edit that file to include 
+%% the details of the actual publications.
+\input{publications}
+%%
+
+\end{document}

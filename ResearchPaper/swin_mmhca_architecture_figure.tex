@@ -1,0 +1,105 @@
+\begin{figure*}[t]
+\centering
+\resizebox{0.98\textwidth}{!}{%
+\begin{tikzpicture}[
+    >=Latex,
+    font=\scriptsize,
+    flow/.style={->, line width=0.55pt},
+    skip/.style={->, dashed, line width=0.5pt},
+    input/.style={draw, fill=gray!15, minimum width=1.35cm, minimum height=0.9cm, align=center},
+    cnn/.style={draw, fill=green!30, minimum width=1.0cm, minimum height=0.58cm, align=center},
+    feat/.style={draw, fill=green!20, minimum width=1.05cm, minimum height=0.62cm, align=center},
+    concat/.style={draw, fill=orange!30, minimum width=1.25cm, minimum height=0.82cm, align=center},
+    swin/.style={draw, fill=blue!20, minimum width=2.2cm, minimum height=0.86cm, align=center},
+    edge/.style={draw, fill=orange!20, minimum width=2.15cm, minimum height=0.78cm, align=center},
+    attn/.style={draw, fill=magenta!20, minimum width=2.15cm, minimum height=0.78cm, align=center},
+    decoder/.style={draw, fill=yellow!30, minimum width=2.45cm, minimum height=1.05cm, align=center},
+    aux/.style={draw, fill=gray!20, minimum width=1.95cm, minimum height=0.68cm, align=center},
+    out/.style={draw, fill=red!20, minimum width=1.75cm, minimum height=0.92cm, align=center},
+    group/.style={draw, dashed, rounded corners=2pt, inner sep=6pt},
+    lab/.style={font=\tiny, fill=white, inner sep=1pt}
+]
+
+% Inputs
+\node[input] (t1) at (0,3.0) {T1 LR\\slice\\$1{\times}64^2$};
+\node[input] (t2) at (0,1.55) {T2 LR\\slice\\$1{\times}64^2$};
+\node[input] (pd) at (0,0.1) {PD LR\\slice\\$1{\times}64^2$};
+
+% Stems
+\node[cnn] (c1) at (1.7,3.0) {CNN};
+\node[cnn, fill=orange!40] (c2) at (1.7,1.55) {CNN};
+\node[cnn, fill=red!35] (c3) at (1.7,0.1) {CNN};
+
+\node[feat] (f1) at (3.15,3.0) {$96{\times}64^2$};
+\node[feat, fill=orange!25] (f2) at (3.15,1.55) {$96{\times}64^2$};
+\node[feat, fill=red!25] (f3) at (3.15,0.1) {$96{\times}64^2$};
+
+\node[concat] (cat) at (4.85,1.55) {concat\\$288{\times}64^2$};
+
+\draw[flow] (t1) -- (c1) -- (f1);
+\draw[flow] (t2) -- (c2) -- (f2);
+\draw[flow] (pd) -- (c3) -- (f3);
+\draw[flow] (f1.east) -- ++(0.32,0) |- (cat.west);
+\draw[flow] (f2) -- (cat);
+\draw[flow] (f3.east) -- ++(0.32,0) |- (cat.west);
+
+% Dual core box
+\coordinate (coreNW) at (5.8,4.05);
+\coordinate (coreSE) at (14.35,-1.25);
+\node[group, fill=gray!8, fit=(coreNW)(coreSE), label=above:{\textbf{Dual Swin-MMHCA Core}}] {};
+
+% Swin branch
+\node[swin] (patch) at (6.85,3.1) {Patch embed\\$96{\times}32^2$};
+\node[swin] (swin) at (9.65,3.1) {SwinV2 backbone\\$32^2,16^2,8^2$};
+\node[swin] (latent) at (12.45,3.1) {Latent\\$768{\times}8^2$};
+
+\draw[flow] (cat.east) -- ++(0.45,0) |- (patch.west);
+\draw[flow] (patch) -- (swin);
+\draw[flow] (swin) -- node[lab, above] {$1{\times}1$} (latent);
+
+% Edge-context branch
+\node[edge] (ctx) at (6.85,0.45) {Context encoder\\$256{\times}64^2$};
+\node[edge] (sobel) at (6.85,-0.95) {Sobel edges\\$3{\times}64^2$};
+\node[edge] (anchor) at (9.65,-0.25) {Edge-context\\anchor\\$256{\times}64^2$};
+
+\draw[flow] (cat.east) -- ++(0.5,0) |- (ctx.west);
+\draw[skip] (t1.east) -- ++(0.7,0) |- (sobel.west);
+\draw[skip] (t2.east) -- ++(0.55,0) |- (sobel.west);
+\draw[skip] (pd.east) -- ++(0.4,0) |- (sobel.west);
+\draw[flow] (ctx.east) -- ++(0.3,0) |- (anchor.west);
+\draw[flow] (sobel.east) -- ++(0.3,0) |- (anchor.west);
+
+% Cross-attention
+\node[attn] (attn8) at (12.45,0.35) {Cross-attn\\$384{\times}8^2$};
+\node[attn] (attnl) at (12.45,-0.95) {Cross-attn\\$768{\times}8^2$};
+
+\draw[flow] (swin.south) -- ++(0,-0.55) -| node[lab, near start, right] {Q} (attn8.north);
+\draw[flow] (latent.south) -- node[lab, right] {Q} (attnl.north);
+\draw[skip] (anchor.east) -- ++(0.5,0) |- node[lab, pos=0.35, above] {K,V 384} (attn8.west);
+\draw[skip] (anchor.east) -- ++(0.5,0) |- node[lab, pos=0.35, below] {K,V 768} (attnl.west);
+
+% Decoder and output
+\node[decoder] (dec) at (16.1,1.15) {Progressive decoder\\PixelShuffle $8{\rightarrow}256$\\residual head};
+\node[out] (sr) at (19.05,1.15) {SR T2\\$1{\times}256^2$};
+\node[input, fill=gray!25] (hr) at (19.05,-0.55) {HR T2\\target\\$1{\times}256^2$};
+
+\draw[flow] (attnl.east) -- ++(0.45,0) |- (dec.west);
+\draw[skip] (attn8.east) -- ++(0.55,0) |- node[lab, pos=0.25, above] {$8^2$ skip} (dec.west);
+\draw[skip] (swin.south east) -- ++(0.8,-1.1) -| node[lab, pos=0.25, above] {$32^2/16^2$ skips} (dec.north);
+\draw[skip] (ctx.east) -- ++(7.35,0) |- node[lab, pos=0.24, above] {context skip} (dec.west);
+\draw[flow] (dec) -- node[lab, above] {residual} (sr);
+\draw[skip] (t2.south) -- ++(0,-2.12) -| node[lab, pos=0.18, below] {bicubic $4{\times}$} (sr.south);
+\draw[skip] (sr) -- (hr);
+
+% Auxiliary heads
+\node[aux] (seg) at (13.85,-2.45) {Segmentation\\$1{\times}256^2$};
+\node[aux] (det) at (16.15,-2.45) {Detection\\$1{\times}5^2$};
+\draw[flow] (attn8.south) -- ++(0,-0.55) -| (seg.north);
+\draw[flow] (attnl.south) -- ++(0,-0.55) -| (det.north);
+
+\node[group, fit=(seg)(det), label=below:{Auxiliary heads}] {};
+\end{tikzpicture}%
+}
+\caption{Overall Swin-MMHCA architecture for $4\times$ 2D T2 MRI super-resolution. Registered T1, T2, and PD LR slices are encoded by modality-specific CNN stems and concatenated. The dual core combines a SwinV2 global branch with a structural edge-context branch. Cross-attention injects edge-context information into deep Swin features, and a progressive decoder reconstructs the HR T2 residual over a bicubic T2 skip connection.}
+\label{fig:swin_mmhca_architecture}
+\end{figure*}

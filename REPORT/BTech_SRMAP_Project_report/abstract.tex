@@ -1,0 +1,11 @@
+% !TeX root = BTechProjectTemplate.tex
+\chapter*{ABSTRACT}
+\addcontentsline{toc}{chapter}{ABSTRACT}
+
+High-resolution (HR) Magnetic Resonance Imaging (MRI) is a cornerstone of clinical neuro-diagnosis, providing a non-invasive window into the complex architecture of the human brain. However, the acquisition of HR-MRI is often limited by fundamental physical trade-offs between spatial resolution, signal-to-noise ratio (SNR), and scan duration. While multi-modal MRI scans (T1, T2, PD) provide complementary anatomical information, effectively fusing these disparate features for image enhancement remains a significant challenge due to non-linear correlations and localized receptive field constraints of traditional convolutional neural networks (CNNs).
+
+In this project, we propose \textbf{Swin-MMHCA}, a novel multi-task framework that integrates the global representation power of hierarchical Vision Transformers with a Multi-Modal Hybrid Cross Attention (MMHCA) mechanism for brain MRI super-resolution. Our architecture utilizes a Swin Transformer V2 backbone to extract deep hierarchical features, capturing long-range dependencies that are essential for maintaining global anatomical symmetry. These features are dynamically aligned and fused with structural edge information extracted via a dedicated guidance branch. 
+
+To ensure anatomical fidelity and diagnostic utility, Swin-MMHCA incorporates auxiliary segmentation and lesion detection branches, enabling the model to learn semantically-aware representations that respect tissue boundaries. Extensive experiments on the IXI dataset demonstrate that our approach significantly outperforms traditional CNN-based and unimodal baselines. For $2\times$ upscaling, the model achieves a Peak Signal-to-Noise Ratio (PSNR) of 40.62 dB and a Structural Similarity Index (SSIM) of 0.9927. For the more challenging $4\times$ upscaling task, Swin-MMHCA maintains superior performance with a PSNR of 33.32 dB. 
+
+The results indicate that the integration of global context and cross-modal attention effectively recovers high-frequency textures and maintains global structural consistency. This work offers a robust software-based solution for high-fidelity medical image enhancement, potentially reducing scan times and improving the accessibility of high-quality neuroimaging in clinical environments.

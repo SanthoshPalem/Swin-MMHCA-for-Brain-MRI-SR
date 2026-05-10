@@ -1,0 +1,122 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Implementation}
+
+\section{Introduction}
+This chapter describes the experimental setup, including dataset preparation, the preprocessing pipeline, and the multi-objective optimization strategy used to train the Swin-MMHCA model.
+
+\section{Dataset and Subject-Level Partitioning}
+Our research is based on \textbf{the IXI Dataset (Information eXtraction from Images)}, including almost 600 MR images of healthy subjects, which were taken in three renowned London hospitals: Hammersmith Hospital, Guy's Hospital, and the Institute of Psychiatry. The patients had a set of T1, T2, and PD scans taken by using two types of machines from Philips Medical Systems, namely, 1.5T and 3T.
+
+The presence of multiple modalities is essential for the super-resolution algorithm. T1-weighted images, obtained by using the modified driven equilibrium Fourier transform (MDEFT), have high anatomical distinction between gray and white tissues. T2-weighted images, obtained by using dual-echo turbo spin-echo (TSE) sequences, have good sensitivity to fluids. In addition, the usage of the IXI dataset allows us to use high-quality clinical images of the healthy subjects' brains to train our super-resolution algorithm.
+
+In order to avoid "data leakage" and maintain the validity of our Swin-MMHCA model, we employed an \textbf{approach called Subject-Level Split}. Most Deep Learning papers combine data slices from one patient in both the training and testing set, which leads to biases since the deep learning model will tend to memorize the anatomy of these patients. The main principle of our split is that each patient’s anatomical signature is observed only once:
+\begin{itemize}
+    \item \textbf{Training Set (80\%):} Used to optimize the weights of the SwinV2 backbone and the MMHCA module, exposing the model to a wide variety of cortical patterns.
+    \item \textbf{Validation Set (10\%):} Used during training for early stopping and hyperparameter tuning to ensure the model does not overfit to the training subjects.
+    \item \textbf{Test Set (10\%):} Reserved for the final, unbiased evaluation of the model's performance on completely unseen anatomies, simulating a real-world clinical deployment.
+\end{itemize}
+
+\section{SimpleITK Preprocessing and Registration Details}
+SimpleITK was the key component in creating the preprocessing pipeline that we used for the study purposes. This is important since the misalignment of modalities would affect the propagation of artifacts through the MMHCA component.
+
+\subsection{Rigid Registration and Mutual Information}
+The Mattes Mutual Information similarity metric was employed for the registration procedure. Mutual Information is an information theory-based metric that computes statistical dependency between two images. While Mean Squared Error relies on comparable intensities, Mutual Information can match images with totally different contrasts, such as T1 and T2.
+The transformation function used was \textit{AffineTransform(3)}, allowing for strong 3D registration. By doing so, we ensured that both T1 and PD were properly aligned in 3D space with T2 before any slicing happens. We used the \textit{RegularStepGradientDescentOptimizerv4} optimizer to adjust transformation parameters.
+
+\subsection{2D Slice Extraction and Preprocessing Filters}
+After completion of the 3D alignment process, conversion to 2D slices was done before using them in the training process.
+Each of these slices then goes through several types of filtering processes
+\begin{enumerate}
+    \item \textbf{Intensity Rescaling:} We used the \textit{RescaleIntensityImageFilter} to map the raw 12-bit or 16-bit MRI values into a standard float $[0, 1]$ range.
+    \item \textbf{Gaussian Smoothing:} A slight Gaussian kernel ($\sigma = 0.5$) was optionally applied during registration to smooth the cost function and avoid local minima.
+    \item \textbf{Brain Masking:} We utilized the \textit{BinaryThresholdImageFilter} to generate a rough brain mask, which was then used to reject slices containing less than 28\% brain tissue.
+\end{enumerate}
+Such rigorous preprocessing allows the Swin-MMHCA model to train on high quality and well-aligned anatomical data.
+
+\section{Training Protocol and Objective Functions}
+The model is trained using a multi-objective optimization strategy. The total loss function $\mathcal{L}_{total}$ is:
+\begin{equation}
+    \mathcal{L}_{total} = \lambda_1 \mathcal{L}_{L1} + \lambda_2 \mathcal{L}_{edge} + \lambda_3 \mathcal{L}_{perc} + \lambda_4 \mathcal{L}_{seg} + \lambda_5 \mathcal{L}_{det}
+\end{equation}
+
+\subsection{Structural Fidelity: Charbonnier L1 Loss}
+We utilize the Charbonnier loss, a differentiable approximation of $L_1$:
+\begin{equation}
+    \mathcal{L}_{L1}(\hat{X}, X) = \frac{1}{CHW} \sum_{c,h,w} \sqrt{(\hat{X}_{c,h,w} - X_{c,h,w})^2 + \epsilon^2}
+\end{equation}
+It is more robust to sharp intensity transitions than $L_2$ loss.
+
+\subsection{High-Frequency Edge Preservation Loss}
+To preserve anatomical boundaries, we compute the gradient maps using Sobel operators and minimize the $L_1$ distance in the gradient domain:
+\begin{equation}
+    \mathcal{L}_{edge} = \mathbb{E}[\|\nabla \hat{X} - \nabla X\|_1]
+\end{equation}
+
+\subsection{Perceptual Fidelity: LPIPS Loss}
+We incorporate the Learned Perceptual Image Patch Similarity (LPIPS) loss, which computes the distance between images in a deep feature space, matching human perceptual judgments.
+
+\subsection{Anatomical Semantic Loss: Dice-BCE}
+For the segmentation auxiliary task, we utilize a combination of Binary Cross Entropy (BCE) and the Dice coefficient:
+\begin{equation}
+    \mathcal{L}_{seg} = \mathcal{L}_{BCE} + \mathcal{L}_{Dice}
+\end{equation}
+
+\subsection{Pathological Awareness: Focal Loss}
+Detecting high-variance regions (lesions) is an imbalanced task. We utilize Focal Loss to prevent the model from being dominated by "easy" background pixels:
+\begin{equation}
+    \mathcal{L}_{focal} = -\alpha (1 - p_t)^\gamma \log(p_t)
+\end{equation}
+
+\section{Evaluation Metrics and Mathematical Definitions}
+To rigorously assess the performance of the super-resolution model, we utilize three complementary metrics that evaluate different aspects of image fidelity: pixel-wise accuracy, structural similarity, and perceptual quality.
+
+\subsection{Peak Signal-to-Noise Ratio (PSNR)}
+PSNR is the most common metric used to measure the quality of reconstruction in lossy compression and image restoration. It is defined based on the Mean Squared Error (MSE) between the ground truth image ($X$) and the super-resolved image ($\hat{X}$):
+\begin{equation}
+    MSE = \frac{1}{mn} \sum_{i=0}^{m-1} \sum_{j=0}^{n-1} [X(i,j) - \hat{X}(i,j)]^2
+\end{equation}
+\begin{equation}
+    PSNR = 10 \cdot \log_{10} \left( \frac{MAX_I^2}{MSE} \right)
+\end{equation}
+where $MAX_I$ is the maximum possible pixel value (e.g., 1.0 for normalized images). While PSNR is effective for measuring signal-to-noise levels, it does not always align with human visual perception.
+
+\subsection{Structural Similarity Index (SSIM)}
+SSIM is a perception-based model that considers image degradation as perceived change in structural information. Unlike MSE, which measures absolute error, SSIM compares three components: luminance ($l$), contrast ($c$), and structure ($s$):
+\begin{equation}
+    SSIM(x, y) = \frac{(2\mu_x\mu_y + C_1)(2\sigma_{xy} + C_2)}{(\mu_x^2 + \mu_y^2 + C_1)(\sigma_x^2 + \sigma_y^2 + C_2)}
+\end{equation}
+where $\mu$ is the mean, $\sigma^2$ is the variance, and $C_1, C_2$ are constants to stabilize the division. SSIM ranges from -1 to 1, with 1 indicating perfect identity.
+
+\subsection{Learned Perceptual Image Patch Similarity (LPIPS)}
+LPIPS measures the distance between two images in a deep feature space. It utilizes a pre-trained network (e.g., AlexNet or VGG) to extract activations from multiple layers. The distance is calculated as a weighted average of the $L_2$ differences between normalized features:
+\begin{equation}
+    d(x, x_0) = \sum_l \frac{1}{H_l W_l} \sum_{h,w} \| w_l \odot (\hat{y}_{hw}^l - \hat{y}_{0hw}^l) \|_2^2
+\end{equation}
+If the LPIPS score is smaller, then it means that the images have visual similarities for human perception, which makes it suitable for measuring the “look and feel” of medical textures.
+The training setup and architectural hyperparameters are crucial in ensuring stable convergence for the SwinV2 backbone network. For this purpose, we employed an initial warming-up phase of 5 epochs using a cosine learning rate decay method. The values are provided in Table \ref{tab:hyperparameters}.
+
+\begin{table}[H]
+    \centering
+    \caption{Training and Model Hyperparameters.}
+    \label{tab:hyperparameters}
+    \begin{tabular}{ll}
+        \toprule
+        \textbf{Hyperparameter} & \textbf{Value} \\
+        \midrule
+        Optimizer & AdamW \\
+        Base Learning Rate & $1 \times 10^{-4}$ \\
+        Weight Decay & $1 \times 10^{-2}$ \\
+        Batch Size & 16 \\
+        Total Epochs & 250 \\
+        Patch Size & $64 \times 64$ \\
+        Embedding Channels & 192 \\
+        Swin Blocks per Stage & [2, 2, 6, 2] \\
+        Attention Heads & [3, 6, 12, 24] \\
+        Window Size & 8 \\
+        Loss Weight ($\lambda_{L1}$) & 1.0 \\
+        Loss Weight ($\lambda_{edge}$) & 0.1 \\
+        Loss Weight ($\lambda_{seg}$) & 0.5 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+The use of the AdamW optimizer with weight decay helped regularize the large parameter space of the hierarchical transformer, preventing overfitting to the specific textures of the training subjects.

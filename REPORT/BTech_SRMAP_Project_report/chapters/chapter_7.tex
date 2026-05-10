@@ -1,0 +1,32 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Conclusion}
+
+\section{Summary of Achievements}
+In this project, we introduced \textbf{Swin-MMHCA}, a novel hierarchical Vision Transformer framework for multi-modal brain MRI super-resolution. By integrating a Swin Transformer V2 backbone with a Multi-Modal Hybrid Cross Attention (MMHCA) module, our model effectively captures both global anatomical dependencies and fine-grained structural details. The hierarchical design, coupled with transformer-based cross-attention, enables dynamic alignment and fusion of features from T1, T2, and PD modalities, overcoming localized receptive field limitations of traditional CNN-based architectures.
+
+Our experimental results on the IXI dataset demonstrate the superiority of the Swin-MMHCA approach, achieving high performance for both 2$\times$ and 4$\times$ upscaling factors. The significant performance gain over the multi-modal and unimodal baselines highlights the effectiveness of global context modeling and structural edge guidance in medical image enhancement. The inclusion of auxiliary segmentation and lesion detection branches ensures that reconstructed images are not only visually sharp but also semantically meaningful for clinical diagnosis, preserving critical anatomical boundaries.
+
+The Swin-MMHCA framework represents a significant step toward "precision neuroradiology," offering a software-based solution to hardware limitations. By computationally enhancing low-resolution scans, we can potentially improve patient throughput and democratize access to high-quality neuroimaging in resource-constrained environments.
+
+\section{Project Limitations and Challenges}
+Despite the superior performance of the Swin-MMHCA model, we identified several limitations during the implementation and testing phases:
+\begin{itemize}
+    \item \textbf{Computational Complexity:} The use of hierarchical Vision Transformers, while effective for global context, requires significantly more GPU memory and inference time than lightweight CNN baselines. This might limit its real-time application in mobile clinical units.
+    \item \textbf{Registration Sensitivity:} The MMHCA module relies on the accurate alignment of T1, T2, and PD modalities. Even with SimpleITK's robust rigid registration, severe patient motion or non-linear deformations between scans can introduce artifacts in the fused output.
+    \item \textbf{Dataset Homogeneity:} Our model was trained and validated on the IXI dataset, which consists of healthy subjects. The performance on highly pathological cases (e.g., large brain tumors or severe atrophy) still requires extensive validation to ensure the auxiliary heads can adapt to abnormal anatomical distributions.
+\end{itemize}
+
+\section{Future Research Directions}
+While Swin-MMHCA has demonstrated exceptional performance, several avenues remain for future exploration to enhance its clinical utility and computational efficiency.
+
+\subsection{3D Volumetric and Temporal Consistency}
+The current implementation operates on 2D slices. However, MRI scans are inherently 3D volumes. Future research will focus on extending the Swin Transformer backbone to handle 3D patches ($D \times H \times W$), allowing the model to exploit inter-slice correlations. Furthermore, in longitudinal studies where patients are scanned over multiple years, integrating a temporal dimension could help the model track disease progression with higher fidelity.
+
+\subsection{Generative Refinement and Diffusion Models}
+Although we utilize a GAN-based objective, recent advancements in \textit{Latent Diffusion Models} (LDMs) offer superior texture synthesis. We plan to explore using the Swin-MMHCA output as a structural guide for a diffusion-based refinement stage, which could potentially recover even finer micro-structural details of the brain's white matter.
+
+\subsection{Model Pruning and Clinical Edge Deployment}
+Deploying large Vision Transformers in clinical settings is challenging due to memory constraints. We aim to investigate model compression techniques, such as \textit{Knowledge Distillation} (transferring knowledge from Swin-MMHCA to a smaller CNN) and \textit{Structured Pruning}. This would enable the deployment of super-resolution algorithms directly on MRI scanner consoles or mobile diagnostic units.
+
+\section{Final Remarks}
+The development of Swin-MMHCA highlights the transformative potential of hierarchical Vision Transformers in medical imaging. By bridging the gap between global anatomical context and multi-modal structural details, this project provides a foundation for the next generation of intelligent neuroimaging tools. As we move toward the era of AI-augmented radiology, frameworks like Swin-MMHCA will be instrumental in making high-precision diagnosis accessible to everyone, regardless of their proximity to high-field MRI facilities.

@@ -1,0 +1,127 @@
+% !TeX root = ../BTechProjectTemplate.tex
+\chapter{Design and Methodology}
+
+\section{Introduction}
+In contrast to this, the Swin-MMHCA network is founded on one organizing principle, namely, the understanding that achieving super-resolution in brain MRI relies upon a combination of local details and the ability to reason globally. While convolution operations perform extremely well in capturing local textures, they do not do as well with establishing connections across large distances. On the other hand, transformers reason about an image globally but have the disadvantage of being less adept at detecting sharp boundaries. Instead of focusing solely on one while neglecting the other, the authors incorporate both in an innovative way within their system. This will be described in greater detail throughout the subsequent sections.
+
+\section{Theoretical Framework}
+
+\subsection{Physics of MRI and the Bloch Equations}
+To understand why super-resolution is both necessary and non-trivial in MRI, it helps to start with the physics of signal generation. When a subject enters the scanner, the static magnetic field $B_0$ causes hydrogen nuclei to align, producing a net magnetization vector $\mathbf{M}$. The dynamics of this vector are governed by the Bloch Equations:
+
+\begin{equation}
+    \frac{d\mathbf{M}}{dt} = \gamma \mathbf{M} \times \mathbf{B} - \frac{M_x \mathbf{i} + M_y \mathbf{j}}{T_2} - \frac{(M_z - M_0) \mathbf{k}}{T_1}
+\end{equation}
+
+Both relaxation parameters, $T_1$ and $T_2$, specify how each tissue reacts depending on the acquisition configuration. The T1 weighted sequence shows the anatomical structure and is characterized by high contrast between gray and white matter, whereas the T2 weighted sequence is highly influenced by the amount of water present and thus becomes informative about any pathology, for example, inflammation. Our approach capitalizes precisely on this dichotomy: the precise structural information from the high-resolution T1 sequence is utilized for improving the low-resolution T2 sequence.
+
+\subsection{K-Space and Image Formation}
+The MRI scanner does not directly record an image. What it measures is the spatial frequency content of the subject — a representation known as k-space, $S(k_x, k_y)$. Reconstructing the image $I(x, y)$ from these measurements is a matter of applying the 2D Inverse Fourier Transform:
+
+\begin{equation}
+    I(x, y) = \mathcal{F}^{-1}\{S(k_x, k_y)\}
+\end{equation}
+
+High spatial resolution imaging necessitates sampling of the high frequencies in k-space, and obtaining these measurements involves considerable time consumption. Shorter scanning procedures performed in clinical settings obtain shorter acquisition times by reducing k-space sampling, and this is the reason that low-resolution images appear blurred since no measurement took place for the high frequencies in k-space. It is possible to view computational super-resolution as a means for obtaining those lost k-space values.
+
+\subsection{The Super-Resolution Inverse Problem}
+The degradation model relating a high-resolution ground truth image $X$ to its low-resolution observation $Y$ is commonly written as:
+
+\begin{equation}
+    Y = (X \ast K) \downarrow_s + \eta
+\end{equation}
+
+where $K$ is a blurring kernel, $\downarrow_s$ denotes spatial downsampling by factor $s$, and $\eta$ represents measurement noise. Inverting this to recover $X$ from $Y$ is an ill-posed problem — many high-resolution images are consistent with the same low-resolution observation. Regularization is therefore essential: we need to inject prior knowledge about what plausible brain anatomy looks like in order to select the right solution from the many that are mathematically consistent. In the Swin-MMHCA framework, this role is played by the Swin Transformer V2 backbone, whose weights encode learned anatomical priors from training data.
+
+\subsection{Principles of the Swin Transformer V2}
+However, using the conventional self-attention mechanism directly on high-resolution medical images is computationally expensive. The attention matrix would be quadratic in the size of the input tensor (image patches), which makes a global full-scale attention operation very costly at clinical resolutions. This problem is solved in the Swin Transformer by dividing the image into non-overlapping local windows and calculating attention only within each such window. Thus, the computation complexity is reduced from quadratic to linear w.r.t. the number of patches.
+
+The downside of this technique is that no connections can be established between patches in different windows. This issue is handled using shifted windows mechanism (SW-MSA) in which two different arrangements of windows are used alternatively through the course of multiple transformer layers in order to make all image regions connectable to each other. The SwinV2 improves upon this approach by introducing the \textit{Log-spaced Continuous Relative Positional Bias} (Log-CPB).
+
+\section{Proposed Swin-MMHCA Architecture}
+The full pipeline is organized into six sequential phases, each addressing a distinct aspect of the super-resolution task.
+
+\begin{figure}[ht]
+    \centering
+    \includegraphics[width=\textwidth]{figures/SwinMMHCA_arch.png}
+    \caption{Detailed Architecture of the Swin-MMHCA Framework, integrating hierarchical Swin Transformer V2 blocks with Multi-Modal Hybrid Cross Attention (MMHCA).}
+    \label{fig:architecture}
+\end{figure}
+
+\subsection{Phase I: Modality-Specific Stem Encoding}
+T1, T2, and PD images have meaningfully different intensity distributions. Feeding them through a shared encoder from the outset risks conflating modality-specific features before the network has had a chance to characterize each one on its own terms. To avoid this, each input modality is first processed by a dedicated \textit{Modality Stem}: a two-layer convolutional block that projects the single-channel input into a 96-dimensional feature representation. Training separate stems allows the model to learn the distinctive texture signatures of each modality before any cross-modal information is introduced.
+
+\subsection{Phase II: Multimodal Contextual Fusion}
+Once the modality-specific features have been established, they are concatenated and passed through a \textit{Fusion Context Encoder} built from residual blocks. The purpose of this stage is to identify and encode the correlations that exist across modalities — the shared anatomical structures that appear, in different ways, in all three scans. The output is a unified feature map that serves as a ``global anatomical anchor'' for the later stages of the network.
+
+\subsection{Phase III: Structural Edge Guidance Branch}
+Sharp anatomical boundaries — the interface between gray matter and white matter, between brain tissue and CSF — carry much of the clinically relevant spatial information in a brain scan. To make this information explicitly available to the reconstruction network, a dedicated \textit{Sobel Edge Extractor} computes gradient magnitude maps from all three input modalities. These edge maps are fused with the contextual features from Phase II, providing the network with a high-frequency prior that specifically targets boundary regions.
+
+\subsection{Phase IV: Hierarchical Swin Transformer V2 Backbone}
+The enhanced feature representation obtained from the above stages is then inputted to the SwinV2 backbone for feature extraction. This backbone exploits the features at increasingly larger spatial resolutions $(H / 2, H / 4, H / 8)$, making it possible for the backbone to learn finer textures locally as well as broader anatomical information globally. Long-range dependencies can be learned using shifted-window self-attention, without having to incur the quadratic complexity of global self-attention.
+
+\subsection{Phase V: Multi-Modal Hybrid Cross-Attention (MMHCA)}
+The MMHCA module is where the global anatomical context $F_{global}$ — built up through Phases II and III — is brought to bear on the deep hierarchical features extracted by the backbone. Unlike standard self-attention, which computes relationships within a single feature map, cross-attention allows one feature map to query information from another. The formulation is:
+
+\begin{equation}
+    \text{Q} = F_{\text{backbone}} W^Q, \quad \text{K} = F_{\text{global}} W^K, \quad \text{V} = F_{\text{global}} W^V
+\end{equation}
+
+Attention scores are then computed as:
+
+\begin{equation}
+    \text{Attention}(Q, K, V) = \text{Softmax}\!\left(\frac{QK^T}{\sqrt{d_k}} + B\right)V
+\end{equation}
+
+In this arrangement, the Queries denote the features of T2 images which are to be improved, while the Keys and Values have the structural information of T1 and PD images. Specifically, the network learns how to find sharp borders in T1 images to utilize the spatial information in the placement of pixels in T2 images, a kind of spatial reasoning across modes which concatenation-based fusion cannot accomplish.
+
+The network employs 8 attention heads per layer. Each one of these attention heads is trained to attend to a distinct subspace of the feature vector, so as to be able to monitor different features of the structure – the density of gray matter, geometry of white matter fibers, etc., in parallel and without competition between them for the same attention map.
+
+\subsection{Internal Structure of the SwinV2 Block}
+Each stage of the backbone is made up of an even number of SwinV2 Blocks, with alternating W-MSA and SW-MSA layers ensuring that local and cross-window attention alternate throughout. Each block contains three components:
+
+\begin{enumerate}
+    \item \textbf{Window-based Multi-head Self-Attention (W-MSA):} Attention computed within fixed non-overlapping windows, capturing local spatial relationships efficiently.
+    \item \textbf{Shifted Window-based Multi-head Self-Attention (SW-MSA):} The window boundaries shift between blocks, allowing features from adjacent windows to interact and propagating context across the image.
+    \item \textbf{Multi-Layer Perceptron (MLP):} A two-layer fully connected network with GeLU activation applied after attention, introducing the non-linearity needed to learn complex feature transformations.
+\end{enumerate}
+
+Following the SwinV2 design, Layer Normalization is applied at the end of each residual branch (Post-Norm), rather than before it. The residual update takes the form:
+
+\begin{equation}
+    x = x + \text{LN}(\text{MSA}(x)), \quad x = x + \text{LN}(\text{MLP}(x))
+\end{equation}
+
+This arrangement stabilizes training at depth and prevents the activation magnitudes from growing uncontrollably as features propagate through later stages.
+
+\subsection{Phase VI: Progressive Upsampling and Multi-Task Heads}
+The latent features extracted from the backbone at the spatial resolution of $H/8 \times W/8$ have to be upsampled gradually to the required resolution of $256 \times 256$. The upscaling process involves a series of \textit{PixelShuffle} layers. PixelShuffle accomplishes this without involving any learned transposed convolution layers, thus avoiding the checkerboard patterns that are typical of transposed convolutions when used for upscaling.
+
+\subsubsection{Auxiliary Task Label Generation}
+The multi-head network needs segmentation and lesion detection as well as super-resolution training targets. Instead of manually annotating every training slice, we obtain pseudo-labels through our ground-truth images that have already been upsampled to high resolution:
+
+\begin{itemize}
+    \item \textbf{Segmentation Mask:}The application of an intensity threshold that adapts itself to the ground truth image divides the brain tissue from the background, thus serving as a rough yet consistent anatomical segmentation target.
+    \item \textbf{Lesion / High-Variance Map:}The standard deviation within smaller windows of the image indicates areas with large intensity variations. These regions correspond to the folded structures of the brain and, in cases where there are pathologies, to the lesions themselves.
+\end{itemize}
+
+Through such simultaneous optimization for these secondary objectives along with the primary objective of reconstruction loss, the encoder is prevented from considering all parts of the image equally. The encoder is forced to retain the boundaries between tissues and also preserve semantics at all scales, not only pixel intensities.
+
+\begin{table}[H]
+\centering
+\caption{Backbone Stage-wise Configuration for Swin-MMHCA.}
+\label{tab:backbone_specs}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Stage} & \textbf{Resolution} & \textbf{Blocks} & \textbf{Heads} & \textbf{Channels} \\
+\midrule
+Patch Embed    & $H/2 \times W/2$ & --  & --  & 96  \\
+Stage 1        & $H/2 \times W/2$ & 2   & 3   & 96  \\
+Downsample 1   & $H/4 \times W/4$ & --  & --  & 192 \\
+Stage 2        & $H/4 \times W/4$ & 2   & 6   & 192 \\
+Downsample 2   & $H/8 \times W/8$ & --  & --  & 384 \\
+Stage 3        & $H/8 \times W/8$ & 6   & 12  & 384 \\
+Latent Stage 4 & $H/8 \times W/8$ & 2   & 24  & 768 \\
+\bottomrule
+\end{tabular}
+\end{table}

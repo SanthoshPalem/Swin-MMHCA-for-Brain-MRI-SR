@@ -1,0 +1,198 @@
+% !TeX root = BTechProjectTemplate.tex
+\usepackage{amsmath, amssymb}
+\usepackage{graphicx, enumerate, multirow, fancyhdr, float, booktabs}
+\usepackage{mathptmx, anyfontsize, setspace}
+\usepackage{indentfirst}
+\usepackage[margin=1in, includefoot]{geometry}%
+%%
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black,
+    filecolor=blue,      
+    urlcolor=blue,
+    pdftitle={Overleaf Example},
+    pdfpagemode=FullScreen,
+    citecolor=blue
+    }
+
+\urlstyle{same}
+
+\usepackage{pxfonts}
+
+%%
+\setcounter{secnumdepth}{3}
+%%
+% Title of the project
+\newcommand{\ttitle}[1]%
+{\def\vtitle{#1}}%
+% name of student1
+\newcommand{\nnameone}[1]%
+{\def\vnameone{#1}}%
+% name of student2
+\newcommand{\nnametwo}[1]%
+{\def\vnametwo{#1}}%
+% name of student3
+\newcommand{\nnamethree}[1]%
+{\def\vnamethree{#1}}%
+% name of student4
+\newcommand{\nnamefour}[1]%
+{\def\vnamefour{#1}}%
+% Register Number of student1
+\newcommand{\rregisternumberone}[1]%
+{\def\vregisternumberone{#1}}%
+% Register Number of student2
+\newcommand{\rregisternumbertwo}[1]%
+{\def\vregisternumbertwo{#1}}%
+% Register Number of student3
+\newcommand{\rregisternumberthree}[1]%
+{\def\vregisternumberthree{#1}}%
+% Register Number of student4
+\newcommand{\rregisternumberfour}[1]%
+{\def\vregisternumberfour{#1}}%
+% Specialization
+\newcommand{\sspecialization}[1]%
+{\def\vspecialization{#1}}%
+% File name of college emblem
+\newcommand{\eemblem}[1]%
+{\def\vemblem{#1}}%
+% Department offering the BTech programme
+\newcommand{\ddept}[1]%
+{\def\vdept{#1}}%
+% name of the College
+\newcommand{\ccollege}[1]%
+{\def\vcollege{#1}}%
+% First line of address of College
+\newcommand{\aaddresslinei}[1]%
+{\def\vaddresslinei{#1}}%
+% second line of address of College
+\newcommand{\aaddresslineii}[1]%
+{\def\vaddresslineii{#1}}%
+% Third line of address of College
+\newcommand{\aaddresslineiii}[1]%
+{\def\vaddresslineiii{#1}}%
+% Name of Head of Department
+\newcommand{\hhod}[1]%
+{\def\vhod{#1}}%
+% Name of Internal Supervisor
+\newcommand{\gguide}[1]%
+{\def\vguide{#1}}%
+
+%project co -ordinator1
+\newcommand{\pprojectco}[1]%
+{\def\pprojectco{#1}}%
+
+%project co -ordinator2
+\newcommand{\pprojectcoii}[1]%
+{\def\pprojectcoii{#1}}%
+
+% Date
+\newcommand{\ddate}[1]%
+{\def\vdate{#1}}%
+%%
+%% Redefining chapter/section/sub-section commands
+%%
+\makeatletter
+\def\@makechapterhead#1%
+{%
+   \vspace*{30\p@}%
+   {%
+      \parindent \z@ \centering \normalfont
+      \ifnum \c@secnumdepth >\m@ne
+         \if@mainmatter
+            \fontsize{15.5}{20}\selectfont\bfseries% 
+            \@chapapp\space \thechapter
+            \par\nobreak
+         \fi
+      \fi
+      \interlinepenalty\@M
+      \fontsize{15.5}{20}\selectfont\bfseries% 
+      \MakeUppercase{#1}\par\nobreak
+      \vskip 20\p@
+   }%
+}%
+%%
+\def\@chapter[#1]#2%
+{%
+   \thispagestyle{empty} 
+   \ifnum \c@secnumdepth >\m@ne
+      \if@mainmatter
+         \refstepcounter{chapter}%
+         \typeout{\@chapapp\space \thechapter.}%
+         \addcontentsline{toc}{chapter}%
+         {\protect\numberline{Chapter \thechapter.\enspace  
+             \MakeUppercase{#1}}}%
+      \else
+         \addcontentsline{toc}{chapter}{#1}%
+      \fi
+   \chaptermark{#1}%
+   \addtocontents{lof}{\protect\addvspace{10\p@}}%
+   \addtocontents{lot}{\protect\addvspace{10\p@}}%
+   \if@twocolumn
+      \@topnewpage[\@makechapterhead{#2}]%
+   \else
+      \@makechapterhead{#2}%
+      \@afterheading
+   \fi
+}%
+%%
+\def\@makeschapterhead#1%
+{%
+   \vspace*{30\p@}%
+   {%
+      \parindent \z@ \centering
+      \normalfont
+      \interlinepenalty\@M
+      \fontsize{15.5}{20}\selectfont\bfseries  
+      \MakeUppercase{#1}\par\nobreak
+      \vskip 20\p@
+  }%
+}%
+%%
+\renewcommand\section{%
+   \@startsection {section}{1}{\z@}%
+   {-3.5ex \@plus -1ex \@minus -.2ex}%
+   {2.3ex \@plus.2ex}%
+   {\fontsize{13.5}{18}\selectfont\bfseries \MakeUppercase}%
+}%
+%%
+\renewcommand\subsection{%
+   \@startsection{subsection}{2}{\z@}%
+   {-3.25ex\@plus -1ex \@minus -.2ex}%
+   {1.5ex \@plus .2ex}%
+   {\fontsize{12}{14}\selectfont\bfseries}%
+}%
+%%
+\renewcommand\subsubsection{%
+   \@startsection{subsubsection}{3}{\z@}%
+   {-3.25ex\@plus -1ex \@minus -.2ex}%
+   {1.5ex \@plus .2ex}%
+   {\normalfont\normalsize}%
+}%
+%%
+\renewcommand\thesubsubsection%
+{%
+\thesubsection.(\@roman\c@subsubsection)
+}%
+%%
+\renewcommand{\l@section}{\@dottedtocline{1}{4.8em}{2em}}%
+\renewcommand{\l@subsection}{\@dottedtocline{2}{9.6em}{2.8em}}%
+%%
+\makeatother
+%%
+\newcommand{\achapter}[1]%
+{%
+\chapter*{#1}%
+\addcontentsline{toc}{chapter}{\MakeUppercase{#1}}%
+}%
+%%
+\pagestyle{plain}
+%%
+%% KTU guidelines say that \parindent should be 
+%% 10 character space. 10 character space is approximately 
+%% equal to 3em (see the website indicated below).
+%% A value of 2.8em has been chosen to align text  with
+%% section headings.
+%%https://www.microsoft.com/typography/developers/fdsspec/spaces.aspx#em_footnote
+\setlength{\parindent}{2.8em}
+%%
