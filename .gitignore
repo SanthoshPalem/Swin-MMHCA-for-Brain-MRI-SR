@@ -1,22 +1,15 @@
 # Data and Models
 datasets/
 pretrained_models/
-epoch_checkpoints/
 *.pt
 *.pth
 *.nii
 *.nii.gz
 
 # Outputs and Visuals
-epoch_visuals/
-results/
-*.png
-!img1.png
-!preprocessing_preview.png
 *.jpg
-*.csv
-!ARCHITECTURE_DIAGRAM.png
-!DualPathArch.png
+# *.csv
+# *.png
 
 # Python
 __pycache__/
